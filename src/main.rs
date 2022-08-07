@@ -12,7 +12,13 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn Error>> {
     println!("Reading config file");
+    let config = get_config()?;
+    
+    Ok(())
+}
 
+
+fn get_config() -> Result<Config, Box<dyn Error>> {
     let config_file_name = String::from("midiMA.json");
     let result = Config::read_from_config(&config_file_name);
     
@@ -24,7 +30,5 @@ fn run() -> Result<(), Box<dyn Error>> {
             Config::default()
         }
     };
-
-    Ok(())
+    Ok(config)
 }
-
