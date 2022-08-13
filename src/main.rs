@@ -13,9 +13,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         config.console_ip,
         config.console_username,
         config.console_password,
-    )?;
-    ma_interface.connect().await?;
-
+    ).await?;
+    ma_interface.start_session().await?;
+    ma_interface.request_playbacks().await?;
     Ok(())
 }
 

@@ -1,3 +1,4 @@
+use super::objects::ItemGroup;
 use serde::{Deserialize, Serialize};
 
 #[allow(non_snake_case)]
@@ -25,4 +26,15 @@ pub struct LoginRequestResponse {
 pub struct ConnectResponse {
     pub status: String,
     pub appType: String,
+}
+
+#[allow(non_snake_case)]
+#[derive(Serialize, Deserialize)]
+pub struct PlaybacksResponse {
+    pub realtime: bool,
+    pub responseType: String,
+    pub responseSubType: i32,
+    pub iPage: i32,
+    pub itemGroups: Vec<ItemGroup>,
+    pub worldIndex: Option<i32>,
 }
