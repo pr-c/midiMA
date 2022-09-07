@@ -11,7 +11,7 @@ pub struct ItemGroup {
 #[derive(Serialize, Deserialize)]
 #[allow(non_snake_case)]
 pub struct Executor {
-    pub i: UnknowenType1,
+    pub i: UnknownType1,
     pub oType: UnknownType2,
     pub oI: UnknownType2,
     pub tt: UnknownType2,
@@ -29,7 +29,7 @@ pub struct Executor {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct UnknowenType1 {
+pub struct UnknownType1 {
     pub t: String,
     #[serde(rename = "c")]
     pub color: String,
