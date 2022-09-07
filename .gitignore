@@ -1,3 +1,6 @@
 /target
 midiMA.json
+.idea
 Cargo.lock
+.gitignore
+log.txt

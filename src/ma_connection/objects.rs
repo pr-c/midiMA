@@ -24,11 +24,9 @@ pub struct Executor {
     pub combined_executor_blocks: i32,
     pub iExec: i32,
     pub isRun: i32,
-    #[serde(rename = "executorBlock")]
+    #[serde(rename = "executorBlocks")]
     pub executor_blocks: Vec<ExecutorBlock>,
 }
-
-
 
 #[derive(Serialize, Deserialize)]
 pub struct UnknowenType1 {
@@ -59,7 +57,7 @@ pub struct Fader {
     pub background_color: Option<String>,
     pub tt: Option<String>,
     #[serde(rename = "v")]
-    pub value: f64,
+    pub value: f32,
     #[serde(rename = "vT")]
     pub value_string: Option<String>,
     pub min: f64,

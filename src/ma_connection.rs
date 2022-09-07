@@ -1,121 +1,235 @@
 mod connection;
-mod objects;
+pub mod objects;
 mod requests;
-mod responses;
+pub mod responses;
+
+use crate::ma_connection::requests::{LoginRequest, PlaybacksRequest, SessionIdRequest};
+use crate::ma_connection::responses::{LoginRequestResponse, SessionIdResponse};
 use connection::Connection;
+use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures_util::StreamExt;
-use requests::{LoginRequest, PlaybacksRequst, SessionIdRequest};
-use responses::{ConnectResponse, LoginRequestResponse, SessionIdResponse};
-use serde::de::DeserializeOwned;
+use requests::RequestType;
+use responses::ResponseWithExplicitType;
 use serde::Serialize;
 use std::error::Error;
-use std::fs;
+use std::str::FromStr;
+use std::time::Duration;
+use tokio::io::AsyncWriteExt;
+use tokio::task::JoinHandle;
+use tokio::time::interval;
 use tokio_tungstenite::tungstenite::protocol::Message;
 use url::Url;
 
-use crate::ma_connection::responses::PlaybacksResponse;
+use self::responses::PlaybacksResponse;
+
+pub struct LoginCredentials {
+    pub username: String,
+    pub password: String,
+}
+
+struct ResponseSenders {
+    pub playbacks: UnboundedSender<PlaybacksResponse>,
+    pub session_id: UnboundedSender<SessionIdResponse>,
+    pub login: UnboundedSender<LoginRequestResponse>,
+}
+
+impl Drop for ResponseSenders {
+    fn drop(&mut self) {
+        self.login.close_channel();
+        self.playbacks.close_channel();
+        self.session_id.close_channel();
+    }
+}
+
+struct ResponseReceivers {
+    pub playbacks: UnboundedReceiver<PlaybacksResponse>,
+    pub session_id: UnboundedReceiver<SessionIdResponse>,
+    pub login: UnboundedReceiver<LoginRequestResponse>,
+}
+
+fn create_response_receiver_sender_pair() -> (ResponseSenders, ResponseReceivers) {
+    let (playbacks_tx, playbacks_rx) = futures_channel::mpsc::unbounded::<PlaybacksResponse>();
+    let (session_id_tx, session_id_rx) = futures_channel::mpsc::unbounded::<SessionIdResponse>();
+    let (login_tx, login_rx) = futures_channel::mpsc::unbounded::<LoginRequestResponse>();
+    (
+        ResponseSenders {
+            playbacks: playbacks_tx,
+            session_id: session_id_tx,
+            login: login_tx,
+        },
+        ResponseReceivers {
+            playbacks: playbacks_rx,
+            session_id: session_id_rx,
+            login: login_rx,
+        },
+    )
+}
 
 pub struct MaInterface {
-    server_username: String,
-    server_password: String,
+    receiver_thread: JoinHandle<()>,
+    keep_alive_thread: JoinHandle<()>,
+    tx: UnboundedSender<Message>,
+    response_receivers: ResponseReceivers,
     session_id: i32,
-    connection: Connection,
 }
 
 impl MaInterface {
-    pub async fn new(
-        server_ip: String,
-        server_username: String,
-        server_password: String,
-    ) -> Result<MaInterface, Box<dyn Error>> {
-        let url = Url::parse(&format!("ws://{}", server_ip))?;
+    pub async fn new(url: &Url, login_credentials: &LoginCredentials) -> Result<MaInterface, Box<dyn Error>> {
         let connection = Connection::new(url).await?;
-        Ok(MaInterface {
-            server_username,
-            server_password,
-            session_id: 0,
-            connection,
-        })
+
+        let keep_alive_tx = connection.tx.clone();
+        let tx = connection.tx.clone();
+
+        let (response_senders, mut response_receivers) = create_response_receiver_sender_pair();
+
+        let receiver_thread = tokio::spawn(MaInterface::receive_loop(connection, response_senders));
+        let session_id = MaInterface::get_session_id(&tx, &mut response_receivers).await?;
+        let keep_alive_thread = tokio::spawn(MaInterface::keep_alive_loop(keep_alive_tx, session_id));
+
+        MaInterface::login(&tx, &mut response_receivers, login_credentials, &session_id).await?;
+        let interface = MaInterface {
+            receiver_thread,
+            keep_alive_thread,
+            tx,
+            response_receivers,
+            session_id,
+        };
+        Ok(interface)
     }
 
-    pub async fn start_session(&mut self) -> Result<(), Box<dyn Error>> {
-        self.receive_response::<ConnectResponse>().await?;
-        self.send_session_id_requst()?;
-        let session_id_response = self.receive_response::<SessionIdResponse>().await?;
-        self.session_id = session_id_response.session;
-        println!("Session ID: {}", self.session_id);
-        self.send_login_request()?;
-        let login_response = self.receive_response::<LoginRequestResponse>().await?;
-        match login_response.result {
-            true => println!("Success"),
-            false => println!("Failure"),
-        }
-        Ok(())
-    }
-
-    pub async fn request_playbacks(&mut self) -> Result<(), Box<dyn Error>> {
-        let request = PlaybacksRequst {
-            requestType: String::from("playbacks"),
-            startIndex: Vec::from([000]),
-            itemsCount: Vec::from([10]),
-            pageIndex: 0,
-            itemsType: Vec::from([2]),
+    pub async fn get_fader_values(&mut self, amount_of_fader_blocks: u32, page_index: u32) -> Result<Vec<f32>, Box<dyn Error>> {
+        let request = PlaybacksRequest {
+            request_type: RequestType::Playbacks.to_string(),
+            start_index: Vec::from([000]),
+            items_count: Vec::from([amount_of_fader_blocks * 5]),
+            page_index,
+            items_type: Vec::from([2]),
             view: 2,
-            execButtonViewMode: 2,
-            buttonsViewMode: 0,
+            exec_button_view_mode: 2,
+            buttons_view_mode: 0,
             session: self.session_id,
         };
-        self.send_request(&request)?;
-        let response = self.receive_response::<PlaybacksResponse>().await?;
-        for group in response.itemGroups {
-            for group_of_five in group.items {
-                for executor in group_of_five {
-                   for executor_block in executor.executor_blocks {
-                       println!("{} {} {} {}", executor_block.button1.pressed, executor_block.button2.pressed, executor_block.fader.value, executor_block.button3.pressed);
-                   } 
+        self.send_request(request).await?;
+        let next = self.response_receivers.playbacks.next().await;
+        if let Some(response) = next {
+            let mut v: Vec<f32> = Vec::new();
+            for group in response.itemGroups {
+                for group_of_five in group.items {
+                    for executor in group_of_five {
+                        for executor_block in executor.executor_blocks {
+                            v.push(executor_block.fader.value);
+                        }
+                    }
+                }
+            }
+            Ok(v)
+        } else {
+            Err("get_fader_values EOS".into())
+        }
+    }
+
+    async fn keep_alive_loop(tx: UnboundedSender<Message>, session_id: i32) {
+        let request = SessionIdRequest::new(&session_id);
+        let request_string: String = serde_json::to_string(&request).unwrap();
+        let mut interval = interval(Duration::from_millis(4000));
+        loop {
+            interval.tick().await;
+            let send_result = tx.unbounded_send(Message::text(&request_string));
+            if let Err(e) = send_result {
+                tokio::io::stdout().write_all(format!("Keep alive thread exited with error: {:?}", e).as_bytes()).await.unwrap();
+                break;
+            }
+        }
+    }
+
+    async fn get_session_id(tx: &UnboundedSender<Message>, rx: &mut ResponseReceivers) -> Result<i32, Box<dyn Error>> {
+        let request = SessionIdRequest::new_unknown_session();
+        MaInterface::send_request_to_channel(tx, request).await?;
+        let next = rx.session_id.next().await;
+        if let Some(response) = next {
+            Ok(response.session)
+        } else {
+            Err("session_id_request EOS".into())
+        }
+    }
+
+    async fn login(tx: &UnboundedSender<Message>, rx: &mut ResponseReceivers, credentials: &LoginCredentials, session_id: &i32) -> Result<(), Box<dyn Error>> {
+        let request = LoginRequest::new(credentials, session_id);
+        MaInterface::send_request_to_channel(tx, request).await?;
+        let next = rx.login.next().await;
+        if let Some(response) = next {
+            return if response.result { Ok(()) } else { Err("login invalid credentials".into()) };
+        }
+        Err("login EOS".into())
+    }
+
+    async fn receive_loop(mut connection: Connection, response_senders: ResponseSenders) {
+        loop {
+            let next = connection.rx.next().await;
+            if let Some(result) = next {
+                match result {
+                    Ok(message) => {
+                        if MaInterface::receive_message(message, &response_senders).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tokio::io::stdout().write_all(format!("receive loop error: {:?}", e).as_bytes()).await;
+                    }
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
+    async fn receive_message(message: Message, response_senders: &ResponseSenders) -> Result<(), Box<dyn Error>> {
+        let response_with_explicit_type = serde_json::from_str::<ResponseWithExplicitType>(&message.to_string());
+        match response_with_explicit_type {
+            Ok(response) => {
+                if let Ok(request_type) = RequestType::from_str(&response.response_type) {
+                    match request_type {
+                        RequestType::Login => {
+                            let login_response = serde_json::from_str::<LoginRequestResponse>(&message.to_string())?;
+                            response_senders.login.unbounded_send(login_response)?;
+                        }
+                        RequestType::Playbacks => {
+                            let playbacks_response = serde_json::from_str::<PlaybacksResponse>(&message.to_string())?;
+                            response_senders.playbacks.unbounded_send(playbacks_response)?;
+                        }
+                        _ => {
+                            return Err(format!("Request Type unknown '{}'", request_type.to_string()).into());
+                        }
+                    }
+                }
+            }
+            Err(_) => {
+                if let Ok(session_id_response) = serde_json::from_str::<SessionIdResponse>(&message.to_string()) {
+                    let _ = tokio::io::stdout().write_all(format!("Session ID {}\n", session_id_response.session).as_bytes()).await;
+                    response_senders.session_id.unbounded_send(session_id_response)?;
+                } else if !message.to_string().is_empty() {
+                    let _ = tokio::io::stdout().write_all((message.to_string()).as_bytes()).await;
                 }
             }
         }
         Ok(())
     }
 
-    fn send_session_id_requst(&self) -> Result<(), Box<dyn Error>> {
-        let request = SessionIdRequest { session: 0 };
-        self.send_request(&request)
+    async fn send_request<T: Serialize>(&self, request: T) -> Result<(), Box<dyn Error>> {
+        MaInterface::send_request_to_channel(&self.tx, request).await
     }
 
-    fn send_login_request(&self) -> Result<(), Box<dyn Error>> {
-        let request = LoginRequest {
-            requestType: String::from("login"),
-            username: self.server_username.clone(),
-            password: self.server_password.clone(),
-            session: self.session_id,
-            maxRequests: 10,
-        };
-        self.send_request(&request)
-    }
-
-    async fn receive_response<T: DeserializeOwned>(&mut self) -> Result<T, Box<dyn Error>> {
-        let message = self.receive().await?;
-        let s = message.to_string();
-        fs::write("log.txt", String::from(&s) + "\n\n\n\n").unwrap();
-        let deserialized: T = serde_json::from_str(&s)?;
-        Ok(deserialized)
-    }
-
-    async fn receive(&mut self) -> Result<Message, Box<dyn Error>> {
-        loop {
-            let next = self.connection.rx.next().await;
-            if let Some(Ok(message)) = next {
-                return Ok(message);
-            }
-        }
-    }
-
-    fn send_request<T: Serialize>(&self, t: &T) -> Result<(), Box<dyn Error>> {
-        let json = serde_json::to_string(&t)?;
-        let data = json.as_bytes();
-        self.connection.tx.unbounded_send(Message::binary(data))?;
+    async fn send_request_to_channel<T: Serialize>(tx: &UnboundedSender<Message>, request: T) -> Result<(), Box<dyn Error>> {
+        let json_string = serde_json::to_string(&request)?;
+        let message = Message::text(json_string);
+        tx.unbounded_send(message)?;
         Ok(())
+    }
+}
+
+impl Drop for MaInterface {
+    fn drop(&mut self) {
+        self.keep_alive_thread.abort();
+        self.receiver_thread.abort();
     }
 }
