@@ -205,10 +205,8 @@ impl MaInterface {
             }
             Err(_) => {
                 if let Ok(session_id_response) = serde_json::from_str::<SessionIdResponse>(&message.to_string()) {
-                    let _ = tokio::io::stdout().write_all(format!("Session ID {}\n", session_id_response.session).as_bytes()).await;
                     response_senders.session_id.unbounded_send(session_id_response)?;
                 } else if !message.to_string().is_empty() {
-                    let _ = tokio::io::stdout().write_all((message.to_string()).as_bytes()).await;
                 }
             }
         }
