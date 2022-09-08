@@ -15,13 +15,13 @@ use url::Url;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    println!("Reading config file");
     let config = get_config()?;
     let hash = md5::compute(config.console_password);
     let login_credentials = LoginCredentials {
         username: config.console_username,
         password_hash: format!("{:x}", hash),
     };
+    println!("Read config file");
 
     let url = Url::parse(&("ws://".to_string() + &config.console_ip))?;
     let ma_mutex = Arc::new(Mutex::new(MaInterface::new(&url, &login_credentials).await?));

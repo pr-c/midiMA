@@ -9,12 +9,11 @@ pub struct MotorFader {
     config: MotorFaderConfig,
     value: u8,
     tx: Arc<Mutex<MidiOutputConnection>>,
-    ma_mutex: Arc<Mutex<MaInterface>>,
 }
 
 impl MotorFader {
-    pub fn new(ma_mutex: Arc<Mutex<MaInterface>>, tx: Arc<Mutex<MidiOutputConnection>>, config: MotorFaderConfig) -> MotorFader {
-        MotorFader { tx, value: 0, config, ma_mutex }
+    pub fn new(tx: Arc<Mutex<MidiOutputConnection>>, config: MotorFaderConfig) -> MotorFader {
+        MotorFader { tx, value: 0, config }
     }
 
     pub fn set_ma_value(&mut self, value: f32) -> Result<(), Box<dyn Error>> {
@@ -32,18 +31,21 @@ impl MotorFader {
         self.config.ma_executor_index
     }
 
-    pub fn receive_midi_input(&mut self, message: &[u8]) {
+    pub fn receive_midi_input(&mut self, message: &[u8], ma: &mut MaInterface) {
         if message.len() < 3 {
             return;
         }
+
         if message[0] == self.config.input_midi_byte_0 && message[1] == self.config.input_midi_byte_1 {
-            self.value = message[2];
-            let mut ma_lock = self.ma_mutex.lock().unwrap();
-            let ma_value = self.fader_value_to_ma_value(self.value);
-            let _ = ma_lock.send_fader_value(self.config.ma_executor_index as u32, 0, ma_value);
-            drop(ma_lock);
-            if self.config.input_feedback.unwrap_or(true) {
-                self.send_value();
+            if self.value != message[2] {
+                self.value = message[2];
+
+                let ma_value = self.fader_value_to_ma_value(self.value);
+                let _ = ma.send_fader_value(self.config.ma_executor_index as u32, 0, ma_value);
+
+                if self.config.input_feedback.unwrap_or(true) {
+                    self.send_value();
+                }
             }
         }
     }
@@ -81,20 +83,23 @@ impl MidiController {
         let motor_faders_mutex = Arc::new(Mutex::new(Vec::new()));
         let mut lock = motor_faders_mutex.lock().unwrap();
         for motor_fader_config in config.motor_faders {
-            lock.push(MotorFader::new(ma_mutex.clone(), connection_tx.clone(), motor_fader_config));
+            lock.push(MotorFader::new(connection_tx.clone(), motor_fader_config));
         }
         drop(lock);
 
         let rx_motor_fader_mutex = motor_faders_mutex.clone();
+        let rx_ma_mutex = ma_mutex.clone();
         let connection_rx = midi_in.connect(
             &port_in,
             &config.midi_in_port_name,
             move |_stamp, message, _| {
-                let mut lock = rx_motor_fader_mutex.lock().unwrap();
-                for motor_fader in lock.iter_mut() {
-                    motor_fader.receive_midi_input(message);
+                if let Ok(mut fader_lock) = rx_motor_fader_mutex.try_lock() {
+                    if let Ok(mut ma_lock) = rx_ma_mutex.try_lock() {
+                        for motor_fader in fader_lock.iter_mut() {
+                            motor_fader.receive_midi_input(message, &mut ma_lock);
+                        }
+                    }
                 }
-                drop(lock);
             },
             (),
         )?;
