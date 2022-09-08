@@ -8,36 +8,45 @@ use config::Config;
 use ma_connection::MaInterface;
 use midi_controller::MidiController;
 use std::error::Error;
-use std::thread::sleep;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
 use url::Url;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     println!("Reading config file");
     let config = get_config()?;
+    let hash = md5::compute(config.console_password);
     let login_credentials = LoginCredentials {
         username: config.console_username,
-        password: config.console_password,
+        password_hash: format!("{:x}", hash),
     };
 
     let url = Url::parse(&("ws://".to_string() + &config.console_ip))?;
-
-    let mut midi = MidiController::new()?;
+    let ma_mutex = Arc::new(Mutex::new(MaInterface::new(&url, &login_credentials).await?));
+    let mut midi_controllers = Vec::new();
+    for midi_controller_config in config.midi_devices {
+        midi_controllers.push(MidiController::new(midi_controller_config, ma_mutex.clone())?);
+    }
+    if midi_controllers.is_empty() {
+        return Err("No midi devices configured".into());
+    }
+    println!("Connected to MA2 Server and {} midi device[s].", midi_controllers.len());
+    let mut interval = tokio::time::interval(Duration::from_millis(config.ma_poll_interval.unwrap_or(10)));
     loop {
-        println!("New Connection");
-        let mut ma = MaInterface::new(&url, &login_credentials).await?;
-        loop {
-            sleep(Duration::from_millis(10));
-            if let Ok(fader_values) = ma.get_fader_values(10, 0).await {
-                for (i, value) in fader_values.iter().enumerate() {
-                    if i > 8 {
-                        break;
-                    }
-                    midi.set_fader_position(i as u8, *value)?;
+        interval.tick().await;
+        let mut ma_lock = ma_mutex.lock().unwrap();
+        let result = ma_lock.poll_fader_values().await;
+        drop(ma_lock);
+        if let Ok(values) = result {
+            for controller in &midi_controllers {
+                let fader_mutex = controller.get_motor_faders_mutex();
+                let mut fader_lock = fader_mutex.lock().unwrap();
+                for fader in fader_lock.iter_mut() {
+                    let _ = fader.set_ma_value(values[fader.get_executor_index() as usize]);
                 }
-            } else {
-                break;
+                drop(fader_lock);
             }
         }
     }

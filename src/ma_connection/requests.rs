@@ -52,7 +52,7 @@ impl LoginRequest {
             request_type: String::from("login"),
             max_requests: 10,
             username: login_credentials.username.clone(),
-            password: login_credentials.password.clone(),
+            password: login_credentials.password_hash.clone(),
             session: *session,
         }
     }
@@ -93,4 +93,32 @@ pub struct PlaybacksRequest {
     #[serde(rename = "buttonsViewMode")]
     pub buttons_view_mode: i32,
     pub session: i32,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct PlaybacksUserInputRequest {
+    #[serde(rename = "requestType")]
+    request_type: String,
+    #[serde(rename = "execIndex")]
+    exec_index: u32,
+    #[serde(rename = "pageIndex")]
+    page_index: u32,
+    #[serde(rename = "faderValue")]
+    fader_value: f32,
+    #[serde(rename = "type")]
+    input_type: u32,
+    session: i32,
+}
+
+impl PlaybacksUserInputRequest {
+    pub fn new(session: i32, exec_index: u32, page_index: u32, fader_value: f32) -> PlaybacksUserInputRequest {
+        PlaybacksUserInputRequest {
+            request_type: "playbacks_userInput".to_string(),
+            exec_index,
+            page_index,
+            fader_value,
+            input_type: 1,
+            session,
+        }
+    }
 }

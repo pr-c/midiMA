@@ -6,6 +6,8 @@ pub struct Config {
     pub console_ip: String,
     pub console_username: String,
     pub console_password: String,
+    pub midi_devices: Vec<MidiControllerConfig>,
+    pub ma_poll_interval: Option<u64>,
 }
 
 impl Config {
@@ -14,6 +16,8 @@ impl Config {
             console_ip: String::from("192.168.178.58"),
             console_username: String::from("remote"),
             console_password: String::from("remote"),
+            midi_devices: Vec::new(),
+            ma_poll_interval: None,
         }
     }
 
@@ -31,4 +35,32 @@ impl Config {
         let config: Config = serde_json::from_str(&content)?;
         Ok(config)
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct MidiControllerConfig {
+    pub midi_in_port_name: String,
+    pub midi_out_port_name: String,
+    pub faders: Vec<FaderConfig>,
+    pub motor_faders: Vec<MotorFaderConfig>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct FaderConfig {
+    pub input_midi_byte_0: u8,
+    pub input_midi_byte_1: u8,
+    pub min_value: Option<u8>,
+    pub max_value: Option<u8>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct MotorFaderConfig {
+    pub input_midi_byte_0: u8,
+    pub input_midi_byte_1: u8,
+    pub output_midi_byte_0: u8,
+    pub output_midi_byte_1: u8,
+    pub min_value: Option<u8>,
+    pub max_value: Option<u8>,
+    pub input_feedback: Option<bool>,
+    pub ma_executor_index: u8,
 }

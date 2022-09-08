@@ -3,7 +3,7 @@ pub mod objects;
 mod requests;
 pub mod responses;
 
-use crate::ma_connection::requests::{LoginRequest, PlaybacksRequest, SessionIdRequest};
+use crate::ma_connection::requests::{LoginRequest, PlaybacksRequest, PlaybacksUserInputRequest, SessionIdRequest};
 use crate::ma_connection::responses::{LoginRequestResponse, SessionIdResponse};
 use connection::Connection;
 use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
@@ -24,7 +24,7 @@ use self::responses::PlaybacksResponse;
 
 pub struct LoginCredentials {
     pub username: String,
-    pub password: String,
+    pub password_hash: String,
 }
 
 struct ResponseSenders {
@@ -97,19 +97,19 @@ impl MaInterface {
         Ok(interface)
     }
 
-    pub async fn get_fader_values(&mut self, amount_of_fader_blocks: u32, page_index: u32) -> Result<Vec<f32>, Box<dyn Error>> {
+    pub async fn poll_fader_values(&mut self) -> Result<Vec<f32>, Box<dyn Error>> {
         let request = PlaybacksRequest {
             request_type: RequestType::Playbacks.to_string(),
             start_index: Vec::from([000]),
-            items_count: Vec::from([amount_of_fader_blocks * 5]),
-            page_index,
+            items_count: Vec::from([10]),
+            page_index: 0,
             items_type: Vec::from([2]),
             view: 2,
             exec_button_view_mode: 2,
             buttons_view_mode: 0,
             session: self.session_id,
         };
-        self.send_request(request).await?;
+        self.send_request(request)?;
         let next = self.response_receivers.playbacks.next().await;
         if let Some(response) = next {
             let mut v: Vec<f32> = Vec::new();
@@ -128,6 +128,12 @@ impl MaInterface {
         }
     }
 
+    pub fn send_fader_value(&mut self, exec_index: u32, page_index: u32, fader_value: f32) -> Result<(), Box<dyn Error>> {
+        let request = PlaybacksUserInputRequest::new(self.session_id, exec_index, page_index, fader_value);
+        self.send_request(request)?;
+        Ok(())
+    }
+
     async fn keep_alive_loop(tx: UnboundedSender<Message>, session_id: i32) {
         let request = SessionIdRequest::new(&session_id);
         let request_string: String = serde_json::to_string(&request).unwrap();
@@ -144,7 +150,7 @@ impl MaInterface {
 
     async fn get_session_id(tx: &UnboundedSender<Message>, rx: &mut ResponseReceivers) -> Result<i32, Box<dyn Error>> {
         let request = SessionIdRequest::new_unknown_session();
-        MaInterface::send_request_to_channel(tx, request).await?;
+        MaInterface::send_request_to_channel(tx, request)?;
         let next = rx.session_id.next().await;
         if let Some(response) = next {
             Ok(response.session)
@@ -155,7 +161,7 @@ impl MaInterface {
 
     async fn login(tx: &UnboundedSender<Message>, rx: &mut ResponseReceivers, credentials: &LoginCredentials, session_id: &i32) -> Result<(), Box<dyn Error>> {
         let request = LoginRequest::new(credentials, session_id);
-        MaInterface::send_request_to_channel(tx, request).await?;
+        MaInterface::send_request_to_channel(tx, request)?;
         let next = rx.login.next().await;
         if let Some(response) = next {
             return if response.result { Ok(()) } else { Err("login invalid credentials".into()) };
@@ -213,11 +219,11 @@ impl MaInterface {
         Ok(())
     }
 
-    async fn send_request<T: Serialize>(&self, request: T) -> Result<(), Box<dyn Error>> {
-        MaInterface::send_request_to_channel(&self.tx, request).await
+    fn send_request<T: Serialize>(&self, request: T) -> Result<(), Box<dyn Error>> {
+        MaInterface::send_request_to_channel(&self.tx, request)
     }
 
-    async fn send_request_to_channel<T: Serialize>(tx: &UnboundedSender<Message>, request: T) -> Result<(), Box<dyn Error>> {
+    fn send_request_to_channel<T: Serialize>(tx: &UnboundedSender<Message>, request: T) -> Result<(), Box<dyn Error>> {
         let json_string = serde_json::to_string(&request)?;
         let message = Message::text(json_string);
         tx.unbounded_send(message)?;
@@ -229,5 +235,6 @@ impl Drop for MaInterface {
     fn drop(&mut self) {
         self.keep_alive_thread.abort();
         self.receiver_thread.abort();
+        println!("MaConnection closed");
     }
 }

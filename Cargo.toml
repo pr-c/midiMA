@@ -12,3 +12,4 @@ tokio-tungstenite = "*"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 url = "2.2.2"
 futures-channel = "0.3.21"
+md5 = "0.7.0"
