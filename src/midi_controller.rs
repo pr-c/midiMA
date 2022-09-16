@@ -1,77 +1,42 @@
+mod motor_fader;
+
 use std::error::Error;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
 
-use crate::config::{MidiControllerConfig, MotorFaderConfig};
+use motor_fader::MotorFader;
+use tokio::sync::{mpsc, Mutex};
+use crate::config::MidiControllerConfig;
 use crate::MaInterface;
-use midir::{MidiIO, MidiInput, MidiInputConnection, MidiOutput, MidiOutputConnection};
+use midir::{MidiIO, MidiInput, MidiInputConnection, MidiOutput};
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::task::JoinHandle;
 
-pub struct MotorFader {
-    config: MotorFaderConfig,
-    value: u8,
-    tx: Arc<Mutex<MidiOutputConnection>>,
-}
-
-impl MotorFader {
-    pub fn new(tx: Arc<Mutex<MidiOutputConnection>>, config: MotorFaderConfig) -> MotorFader {
-        MotorFader { tx, value: 0, config }
-    }
-
-    pub fn set_ma_value(&mut self, value: f32) -> Result<(), Box<dyn Error>> {
-        self.set_value(self.ma_value_to_fader_value(value))
-    }
-    fn set_value(&mut self, value: u8) -> Result<(), Box<dyn Error>> {
-        if value != self.value {
-            self.value = value;
-            self.send_value();
-        }
-        Ok(())
-    }
-
-    pub fn get_executor_index(&self) -> u8 {
-        self.config.ma_executor_index
-    }
-
-    pub fn receive_midi_input(&mut self, message: &[u8], ma: &mut MaInterface) {
-        if message.len() < 3 {
-            return;
-        }
-
-        if message[0] == self.config.input_midi_byte_0 && message[1] == self.config.input_midi_byte_1 {
-            if self.value != message[2] {
-                self.value = message[2];
-
-                let ma_value = self.fader_value_to_ma_value(self.value);
-                let _ = ma.send_fader_value(self.config.ma_executor_index as u32, 0, ma_value);
-
-                if self.config.input_feedback.unwrap_or(true) {
-                    self.send_value();
-                }
-            }
-        }
-    }
-
-    fn fader_value_to_ma_value(&self, v: u8) -> f32 {
-        ((v - self.config.min_value.unwrap_or(0)) as f32) / (self.config.max_value.unwrap_or(127) as f32)
-    }
-
-    fn ma_value_to_fader_value(&self, v: f32) -> u8 {
-        (v * (self.config.max_value.unwrap_or(127) as f32)) as u8 + self.config.min_value.unwrap_or(0)
-    }
-
-    fn send_value(&self) {
-        let mut lock = self.tx.lock().unwrap();
-        let _ = lock.send(&[self.config.output_midi_byte_0, self.config.output_midi_byte_1, self.value]);
-        drop(lock);
-    }
+pub struct MidiMessage {
+    data: [u8; 3],
 }
 
 pub struct MidiController {
     motor_faders: Arc<Mutex<Vec<MotorFader>>>,
+    receiver_task_handle: JoinHandle<()>,
     _connection_rx: MidiInputConnection<()>,
 }
 
+async fn receiver_task(mut message_source: UnboundedReceiver<MidiMessage>, motor_faders_mutex: Arc<Mutex<Vec<MotorFader>>>) {
+    loop {
+        let message_option = message_source.recv().await;
+        if let Some(message) = &message_option {
+            let mut fader_lock = motor_faders_mutex.lock().await;
+            for motor_fader in fader_lock.iter_mut() {
+                motor_fader.set_value_from_midi(message).await;
+            }
+        } else {
+            break;
+        }
+    }
+}
+
 impl MidiController {
-    pub fn new(config: MidiControllerConfig, ma_mutex: Arc<Mutex<MaInterface>>) -> Result<MidiController, Box<dyn Error>> {
+    pub async fn new(config: MidiControllerConfig, ma_mutex: Arc<Mutex<MaInterface>>) -> Result<MidiController, Box<dyn Error>> {
         let mut midi_out = MidiOutput::new(&("MidiMA out ".to_owned() + &config.midi_out_port_name))?;
         let mut midi_in = MidiInput::new(&("MidiMA in ".to_owned() + &config.midi_in_port_name))?;
 
@@ -81,24 +46,25 @@ impl MidiController {
         let connection_tx = Arc::new(Mutex::new(midi_out.connect(&port_out, &config.midi_out_port_name)?));
 
         let motor_faders_mutex = Arc::new(Mutex::new(Vec::new()));
-        let mut lock = motor_faders_mutex.lock().unwrap();
+        let mut lock = motor_faders_mutex.lock().await;
         for motor_fader_config in config.motor_faders {
-            lock.push(MotorFader::new(connection_tx.clone(), motor_fader_config));
+            lock.push(MotorFader::new(connection_tx.clone(), ma_mutex.clone(), motor_fader_config));
         }
         drop(lock);
 
-        let rx_motor_fader_mutex = motor_faders_mutex.clone();
-        let rx_ma_mutex = ma_mutex.clone();
+        let (tx, rx) = mpsc::unbounded_channel();
+        let receiver_task_handle = tokio::spawn(receiver_task(rx, motor_faders_mutex.clone()));
+
+
         let connection_rx = midi_in.connect(
             &port_in,
             &config.midi_in_port_name,
             move |_stamp, message, _| {
-                if let Ok(mut fader_lock) = rx_motor_fader_mutex.try_lock() {
-                    if let Ok(mut ma_lock) = rx_ma_mutex.try_lock() {
-                        for motor_fader in fader_lock.iter_mut() {
-                            motor_fader.receive_midi_input(message, &mut ma_lock);
-                        }
-                    }
+                let midi_data = message.try_into();
+                if let Ok(data) = midi_data {
+                    let _ = tx.send(MidiMessage {
+                        data
+                    });
                 }
             },
             (),
@@ -107,6 +73,7 @@ impl MidiController {
         Ok(MidiController {
             _connection_rx: connection_rx,
             motor_faders: motor_faders_mutex,
+            receiver_task_handle,
         })
     }
 
@@ -121,5 +88,11 @@ impl MidiController {
             }
         }
         Err("The midi input couldn't be found.")?
+    }
+}
+
+impl Drop for MidiController {
+    fn drop(&mut self) {
+        self.receiver_task_handle.abort();
     }
 }

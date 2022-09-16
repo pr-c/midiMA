@@ -7,17 +7,17 @@ pub struct Config {
     pub console_username: String,
     pub console_password: String,
     pub midi_devices: Vec<MidiControllerConfig>,
-    pub ma_poll_interval: Option<u64>,
+    pub ma_poll_interval: u64,
 }
 
 impl Config {
     pub fn default() -> Config {
         Config {
-            console_ip: String::from("192.168.178.58"),
+            console_ip: String::from("192.168.178.71"),
             console_username: String::from("remote"),
             console_password: String::from("remote"),
             midi_devices: Vec::new(),
-            ma_poll_interval: None,
+            ma_poll_interval: 10,
         }
     }
 
