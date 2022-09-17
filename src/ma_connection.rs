@@ -6,7 +6,6 @@ pub mod responses;
 use crate::ma_connection::requests::{LoginRequest, PlaybacksRequest, PlaybacksUserInputRequest, SessionIdRequest};
 use crate::ma_connection::responses::{LoginRequestResponse, SessionIdResponse};
 use connection::Connection;
-use futures_channel::mpsc::{UnboundedReceiver, UnboundedSender};
 use futures_util::StreamExt;
 use requests::RequestType;
 use responses::ResponseWithExplicitType;
@@ -15,6 +14,7 @@ use std::error::Error;
 use std::str::FromStr;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
 use tokio::time::interval;
 use tokio_tungstenite::tungstenite::protocol::Message;
@@ -33,14 +33,6 @@ struct ResponseSenders {
     pub login: UnboundedSender<LoginRequestResponse>,
 }
 
-impl Drop for ResponseSenders {
-    fn drop(&mut self) {
-        self.login.close_channel();
-        self.playbacks.close_channel();
-        self.session_id.close_channel();
-    }
-}
-
 struct ResponseReceivers {
     pub playbacks: UnboundedReceiver<PlaybacksResponse>,
     pub session_id: UnboundedReceiver<SessionIdResponse>,
@@ -48,9 +40,9 @@ struct ResponseReceivers {
 }
 
 fn create_response_receiver_sender_pair() -> (ResponseSenders, ResponseReceivers) {
-    let (playbacks_tx, playbacks_rx) = futures_channel::mpsc::unbounded::<PlaybacksResponse>();
-    let (session_id_tx, session_id_rx) = futures_channel::mpsc::unbounded::<SessionIdResponse>();
-    let (login_tx, login_rx) = futures_channel::mpsc::unbounded::<LoginRequestResponse>();
+    let (playbacks_tx, playbacks_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (session_id_tx, session_id_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (login_tx, login_rx) = tokio::sync::mpsc::unbounded_channel();
     (
         ResponseSenders {
             playbacks: playbacks_tx,
@@ -110,7 +102,7 @@ impl MaInterface {
             session: self.session_id,
         };
         self.send_request(request)?;
-        let next = self.response_receivers.playbacks.next().await;
+        let next = self.response_receivers.playbacks.recv().await;
         if let Some(response) = next {
             let mut v: Vec<f32> = Vec::new();
             for group in response.itemGroups {
@@ -140,7 +132,7 @@ impl MaInterface {
         let mut interval = interval(Duration::from_millis(4000));
         loop {
             interval.tick().await;
-            let send_result = tx.unbounded_send(Message::text(&request_string));
+            let send_result = tx.send(Message::text(&request_string));
             if let Err(e) = send_result {
                 println!("Keep alive thread exited with error: {:?}", e);
                 break;
@@ -151,7 +143,7 @@ impl MaInterface {
     async fn get_session_id(tx: &UnboundedSender<Message>, rx: &mut ResponseReceivers) -> Result<i32, Box<dyn Error>> {
         let request = SessionIdRequest::new_unknown_session();
         MaInterface::send_request_to_channel(tx, request)?;
-        let next = rx.session_id.next().await;
+        let next = rx.session_id.recv().await;
         if let Some(response) = next {
             Ok(response.session)
         } else {
@@ -162,7 +154,7 @@ impl MaInterface {
     async fn login(tx: &UnboundedSender<Message>, rx: &mut ResponseReceivers, credentials: &LoginCredentials, session_id: &i32) -> Result<(), Box<dyn Error>> {
         let request = LoginRequest::new(credentials, session_id);
         MaInterface::send_request_to_channel(tx, request)?;
-        let next = rx.login.next().await;
+        let next = rx.login.recv().await;
         if let Some(response) = next {
             return if response.result { Ok(()) } else { Err("login invalid credentials".into()) };
         }
@@ -199,31 +191,38 @@ impl MaInterface {
             }
             Err(_) => {
                 if let Ok(session_id_response) = serde_json::from_str::<SessionIdResponse>(&message.to_string()) {
-                    response_senders.session_id.unbounded_send(session_id_response)?;
-                } else if !message.to_string().is_empty() {
-                }
+                    let send_result = response_senders.session_id.send(session_id_response);
+                    if let Err(_) = send_result {
+                        return Err("session id response channel closed".into());
+                    }
+                } else if !message.to_string().is_empty() {}
             }
         }
         Ok(())
     }
 
-    fn receive_message_with_type(message: Message, request_type: RequestType, response_senders: &ResponseSenders) -> Result<(), Box<dyn Error>>{
+    fn receive_message_with_type(message: Message, request_type: RequestType, response_senders: &ResponseSenders) -> Result<(), Box<dyn Error>> {
         match request_type {
             RequestType::Login => {
                 let login_response = serde_json::from_str::<LoginRequestResponse>(&message.to_string())?;
-                response_senders.login.unbounded_send(login_response)?;
+                let send_result = response_senders.login.send(login_response);
+                if let Err(_) = send_result {
+                    return Err("login response channel closed".into());
+                }
                 Ok(())
             }
             RequestType::Playbacks => {
                 let playbacks_response = serde_json::from_str::<PlaybacksResponse>(&message.to_string())?;
-                response_senders.playbacks.unbounded_send(playbacks_response)?;
+                let send_result = response_senders.playbacks.send(playbacks_response);
+                if let Err(_) = send_result {
+                    return Err("playbacks response channel closed".into());
+                }
                 Ok(())
             }
             _ => {
                 Err(format!("Request Type unknown '{}'", request_type.to_string()).into())
             }
         }
-
     }
 
     fn send_request<T: Serialize>(&self, request: T) -> Result<(), Box<dyn Error>> {
@@ -233,7 +232,7 @@ impl MaInterface {
     fn send_request_to_channel<T: Serialize>(tx: &UnboundedSender<Message>, request: T) -> Result<(), Box<dyn Error>> {
         let json_string = serde_json::to_string(&request)?;
         let message = Message::text(json_string);
-        tx.unbounded_send(message)?;
+        tx.send(message)?;
         Ok(())
     }
 }
