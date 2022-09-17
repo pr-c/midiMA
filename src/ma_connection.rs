@@ -68,7 +68,7 @@ fn create_response_receiver_sender_pair() -> (ResponseSenders, ResponseReceivers
 pub struct MaInterface {
     receiver_thread: JoinHandle<()>,
     keep_alive_thread: JoinHandle<()>,
-    tx: UnboundedSender<Message>,
+    websocket_sender: UnboundedSender<Message>,
     response_receivers: ResponseReceivers,
     session_id: i32,
 }
@@ -78,19 +78,19 @@ impl MaInterface {
         let connection = Connection::new(url).await?;
 
         let keep_alive_tx = connection.tx.clone();
-        let tx = connection.tx.clone();
+        let websocket_sender = connection.tx.clone();
 
         let (response_senders, mut response_receivers) = create_response_receiver_sender_pair();
 
         let receiver_thread = tokio::spawn(MaInterface::receive_loop(connection, response_senders));
-        let session_id = MaInterface::get_session_id(&tx, &mut response_receivers).await?;
+        let session_id = MaInterface::get_session_id(&websocket_sender, &mut response_receivers).await?;
         let keep_alive_thread = tokio::spawn(MaInterface::keep_alive_loop(keep_alive_tx, session_id));
 
-        MaInterface::login(&tx, &mut response_receivers, login_credentials, &session_id).await?;
+        MaInterface::login(&websocket_sender, &mut response_receivers, login_credentials, &session_id).await?;
         let interface = MaInterface {
             receiver_thread,
             keep_alive_thread,
-            tx,
+            websocket_sender,
             response_receivers,
             session_id,
         };
@@ -142,7 +142,7 @@ impl MaInterface {
             interval.tick().await;
             let send_result = tx.unbounded_send(Message::text(&request_string));
             if let Err(e) = send_result {
-                tokio::io::stdout().write_all(format!("Keep alive thread exited with error: {:?}", e).as_bytes()).await.unwrap();
+                println!("Keep alive thread exited with error: {:?}", e);
                 break;
             }
         }
@@ -194,19 +194,7 @@ impl MaInterface {
         match response_with_explicit_type {
             Ok(response) => {
                 if let Ok(request_type) = RequestType::from_str(&response.response_type) {
-                    match request_type {
-                        RequestType::Login => {
-                            let login_response = serde_json::from_str::<LoginRequestResponse>(&message.to_string())?;
-                            response_senders.login.unbounded_send(login_response)?;
-                        }
-                        RequestType::Playbacks => {
-                            let playbacks_response = serde_json::from_str::<PlaybacksResponse>(&message.to_string())?;
-                            response_senders.playbacks.unbounded_send(playbacks_response)?;
-                        }
-                        _ => {
-                            return Err(format!("Request Type unknown '{}'", request_type.to_string()).into());
-                        }
-                    }
+                    MaInterface::receive_message_with_type(message, request_type, response_senders)?;
                 }
             }
             Err(_) => {
@@ -219,8 +207,27 @@ impl MaInterface {
         Ok(())
     }
 
+    fn receive_message_with_type(message: Message, request_type: RequestType, response_senders: &ResponseSenders) -> Result<(), Box<dyn Error>>{
+        match request_type {
+            RequestType::Login => {
+                let login_response = serde_json::from_str::<LoginRequestResponse>(&message.to_string())?;
+                response_senders.login.unbounded_send(login_response)?;
+                Ok(())
+            }
+            RequestType::Playbacks => {
+                let playbacks_response = serde_json::from_str::<PlaybacksResponse>(&message.to_string())?;
+                response_senders.playbacks.unbounded_send(playbacks_response)?;
+                Ok(())
+            }
+            _ => {
+                Err(format!("Request Type unknown '{}'", request_type.to_string()).into())
+            }
+        }
+
+    }
+
     fn send_request<T: Serialize>(&self, request: T) -> Result<(), Box<dyn Error>> {
-        MaInterface::send_request_to_channel(&self.tx, request)
+        MaInterface::send_request_to_channel(&self.websocket_sender, request)
     }
 
     fn send_request_to_channel<T: Serialize>(tx: &UnboundedSender<Message>, request: T) -> Result<(), Box<dyn Error>> {
