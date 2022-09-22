@@ -27,6 +27,22 @@ pub struct LoginCredentials {
     pub password_hash: String,
 }
 
+pub struct ExecutorValue {
+    pub exec_index: u32,
+    pub page_index: u32,
+    pub fader_value: f32,
+}
+
+impl ExecutorValue {
+    pub fn new(exec_index: u32, page_index: u32, fader_value: f32) -> Self {
+        Self {
+            exec_index,
+            page_index,
+            fader_value,
+        }
+    }
+}
+
 struct ResponseSenders {
     pub playbacks: UnboundedSender<PlaybacksResponse>,
     pub session_id: UnboundedSender<SessionIdResponse>,
@@ -120,8 +136,8 @@ impl MaInterface {
         }
     }
 
-    pub fn send_fader_value(&mut self, exec_index: u32, page_index: u32, fader_value: f32) -> Result<(), Box<dyn Error>> {
-        let request = PlaybacksUserInputRequest::new(self.session_id, exec_index, page_index, fader_value);
+    pub fn send_executor_value(&mut self, executor_value: &ExecutorValue) -> Result<(), Box<dyn Error>> {
+        let request = PlaybacksUserInputRequest::new(self.session_id, executor_value.exec_index, executor_value.page_index, executor_value.fader_value);
         self.send_request(request)?;
         Ok(())
     }

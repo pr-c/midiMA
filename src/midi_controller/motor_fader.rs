@@ -6,6 +6,7 @@ use tokio::task::JoinHandle;
 use crate::config::MotorFaderConfig;
 use crate::MaInterface;
 use tokio::sync::Mutex;
+use crate::ma_connection::ExecutorValue;
 use crate::midi_controller::MidiMessage;
 
 pub struct MotorFader {
@@ -95,7 +96,7 @@ impl MotorFader {
 
     fn send_value_to_ma(config: &Arc<MotorFaderConfig>, ma: &mut MaInterface, value: u8) {
         let ma_value = MotorFader::fader_value_to_ma_value(config, value);
-        let _ = ma.send_fader_value(config.ma_executor_index as u32, 0, ma_value);
+        let _ = ma.send_executor_value(&ExecutorValue::new(config.ma_executor_index as u32, 0, ma_value));
     }
 
     fn fader_value_to_ma_value(config: &Arc<MotorFaderConfig>, v: u8) -> f32 {
