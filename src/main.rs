@@ -45,11 +45,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         if let Ok(values) = result {
             for controller in &midi_controllers {
                 let fader_mutex = controller.get_motor_faders_mutex();
-                let mut fader_lock = fader_mutex.lock().await;
-                for fader in fader_lock.iter_mut() {
-                    let _ = fader.set_value_from_ma(values[fader.get_executor_index() as usize]).await;
+                let fader_lock_result = fader_mutex.try_lock();
+                if let Ok(mut fader_lock) = fader_lock_result {
+                    for fader in fader_lock.iter_mut() {
+                       let _ = fader.set_value_from_ma(values[fader.get_executor_index() as usize]).await;
+                    }
                 }
-                drop(fader_lock);
             }
         }
     }

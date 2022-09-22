@@ -56,10 +56,8 @@ impl MotorFader {
                         self.start_ma_update();
                     }
                 }
-
                 if self.config.input_feedback.unwrap_or(true) {
                     let _ = self.send_value_to_midi().await;
-
                 }
             }
         }
@@ -74,7 +72,7 @@ impl MotorFader {
     }
 
     pub async fn ma_update_loop(new_value: Arc<Mutex<Option<u8>>>, config: Arc<MotorFaderConfig>, ma: Arc<Mutex<MaInterface>>) {
-        let mut interval = tokio::time::interval(Duration::from_millis(10));
+        let mut interval = tokio::time::interval(Duration::from_millis(50));
         loop {
             interval.tick().await;
             let mut val_lock = new_value.lock().await;
@@ -89,7 +87,7 @@ impl MotorFader {
         }
     }
 
-   async fn send_value_to_midi(&self) -> Result<(), Box<dyn Error>> {
+    async fn send_value_to_midi(&self) -> Result<(), Box<dyn Error>> {
         let mut lock = self.midi_tx.lock().await;
         lock.send(&[self.config.output_midi_byte_0, self.config.output_midi_byte_1, self.value])?;
         Ok(())
