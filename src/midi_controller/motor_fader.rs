@@ -103,7 +103,7 @@ impl MotorFader {
     }
 
     fn ma_value_to_fader_value(config: &Arc<MotorFaderConfig>, v: f32) -> u8 {
-        (v * (config.max_value.unwrap_or(127) as f32)) as u8 + config.min_value.unwrap_or(0)
+        (v * (config.max_value.unwrap_or(127) as f32)).round() as u8 + config.min_value.unwrap_or(0)
     }
 }
 
