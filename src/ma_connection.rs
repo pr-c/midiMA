@@ -192,7 +192,7 @@ impl MaInterface {
             Err(_) => {
                 if let Ok(session_id_response) = serde_json::from_str::<SessionIdResponse>(&message.to_string()) {
                     let send_result = response_senders.session_id.send(session_id_response);
-                    if let Err(_) = send_result {
+                    if send_result.is_err() {
                         return Err("session id response channel closed".into());
                     }
                 } else if !message.to_string().is_empty() {}
@@ -206,7 +206,7 @@ impl MaInterface {
             RequestType::Login => {
                 let login_response = serde_json::from_str::<LoginRequestResponse>(&message.to_string())?;
                 let send_result = response_senders.login.send(login_response);
-                if let Err(_) = send_result {
+                if send_result.is_err() {
                     return Err("login response channel closed".into());
                 }
                 Ok(())
@@ -214,7 +214,7 @@ impl MaInterface {
             RequestType::Playbacks => {
                 let playbacks_response = serde_json::from_str::<PlaybacksResponse>(&message.to_string())?;
                 let send_result = response_senders.playbacks.send(playbacks_response);
-                if let Err(_) = send_result {
+                if send_result.is_err() {
                     return Err("playbacks response channel closed".into());
                 }
                 Ok(())
