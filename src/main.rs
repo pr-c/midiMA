@@ -13,35 +13,41 @@ use std::sync::{Arc};
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::Mutex;
+use tokio::time::Interval;
 
 use url::Url;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let config = get_config()?;
-    let hash = md5::compute(config.console_password);
+    let password_hash = md5::compute(config.console_password);
     let login_credentials = LoginCredentials {
         username: config.console_username,
-        password_hash: format!("{:x}", hash),
+        password_hash: format!("{:x}", password_hash),
     };
     println!("Read config file");
 
-    let (fader_tx, ma_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (executor_value_sender, executor_value_receiver) = tokio::sync::mpsc::unbounded_channel();
 
     let url = Url::parse(&("ws://".to_string() + &config.console_ip))?;
-    let ma_mutex = Arc::new(Mutex::new(MaInterface::new(&url, &login_credentials).await?));
+
     let mut midi_controllers = Vec::new();
     for midi_controller_config in config.midi_devices {
-        midi_controllers.push(MidiController::new(midi_controller_config, fader_tx.clone()).await?);
+        midi_controllers.push(MidiController::new(midi_controller_config, executor_value_sender.clone()).await?);
     }
     if midi_controllers.is_empty() {
         return Err("No midi devices configured".into());
     }
+    println!("Connected to {} midi device[s].", midi_controllers.len());
 
-    tokio::spawn(fader_to_ma_forward_loop(ma_mutex.clone(), ma_rx));
-
-    println!("Connected to MA2 Server and {} midi device[s].", midi_controllers.len());
+    let ma_mutex = Arc::new(Mutex::new(MaInterface::new(&url, &login_credentials).await?));
+    tokio::spawn(fader_to_ma_forward_loop(ma_mutex.clone(), executor_value_receiver));
     let mut interval = tokio::time::interval(Duration::from_millis(config.ma_poll_interval));
+    ma_poll_loop(&mut interval, &ma_mutex, &midi_controllers).await;
+    Ok(())
+}
+
+async fn ma_poll_loop(interval: &mut Interval, ma_mutex: &Arc<Mutex<MaInterface>>, midi_controllers: &Vec<MidiController>) {
     loop {
         interval.tick().await;
 
@@ -49,7 +55,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         let result = ma_lock.poll_fader_values().await;
         drop(ma_lock);
         if let Ok(values) = result {
-            for controller in &midi_controllers {
+            for controller in midi_controllers {
                 let fader_mutex = controller.get_motor_faders_mutex();
                 let fader_lock_result = fader_mutex.try_lock();
                 if let Ok(mut fader_lock) = fader_lock_result {
