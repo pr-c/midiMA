@@ -32,6 +32,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let midi_controllers = init_midi_controllers(&config, executor_value_sender).await?;
     println!("Connected to {} midi device[s].", midi_controllers.len());
 
+    main_loop(config, login_credentials, midi_controllers, executor_value_receiver).await
+}
+
+async fn main_loop(config: Arc<Config>, login_credentials: LoginCredentials, midi_controllers: Arc<Vec<MidiController>>, executor_value_receiver: UnboundedReceiver<ExecutorValue>) -> Result<(), Box<dyn Error>>{
     let url = Url::parse(&("ws://".to_string() + &config.console_ip))?;
     let ma_mutex = Arc::new(Mutex::new(MaInterface::new(&url, &login_credentials).await?));
     tokio::spawn(fader_to_ma_forward_loop(ma_mutex.clone(), executor_value_receiver));
