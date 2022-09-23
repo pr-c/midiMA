@@ -47,7 +47,7 @@ impl MidiController {
 
         let motor_faders_mutex = Arc::new(Mutex::new(Vec::new()));
         let mut lock = motor_faders_mutex.lock().await;
-        for motor_fader_config in config.motor_faders {
+        for motor_fader_config in &config.motor_faders {
             lock.push(MotorFader::new(connection_tx.clone(), ma_sender.clone(), motor_fader_config));
         }
         drop(lock);

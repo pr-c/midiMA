@@ -11,7 +11,7 @@ use midi_controller::MidiController;
 use std::error::Error;
 use std::sync::{Arc};
 use std::time::Duration;
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::Mutex;
 use tokio::time::Interval;
 
@@ -19,35 +19,39 @@ use url::Url;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let config = get_config()?;
-    let password_hash = md5::compute(config.console_password);
+    let config = Arc::new(get_config()?);
+    let password_hash = md5::compute(config.console_password.clone());
     let login_credentials = LoginCredentials {
-        username: config.console_username,
+        username: config.console_username.clone(),
         password_hash: format!("{:x}", password_hash),
     };
     println!("Read config file");
 
     let (executor_value_sender, executor_value_receiver) = tokio::sync::mpsc::unbounded_channel();
 
-    let url = Url::parse(&("ws://".to_string() + &config.console_ip))?;
+    let midi_controllers = init_midi_controllers(&config, executor_value_sender).await?;
+    println!("Connected to {} midi device[s].", midi_controllers.len());
 
+    let url = Url::parse(&("ws://".to_string() + &config.console_ip))?;
+    let ma_mutex = Arc::new(Mutex::new(MaInterface::new(&url, &login_credentials).await?));
+    tokio::spawn(fader_to_ma_forward_loop(ma_mutex.clone(), executor_value_receiver));
+    let mut interval = tokio::time::interval(Duration::from_millis(config.ma_poll_interval));
+    ma_poll_loop(&mut interval, ma_mutex.clone(), &midi_controllers).await;
+    Ok(())
+}
+
+async fn init_midi_controllers(config: &Arc<Config>, executor_value_sender: UnboundedSender<ExecutorValue>) -> Result<Arc<Vec<MidiController>>, Box<dyn Error>>{
     let mut midi_controllers = Vec::new();
-    for midi_controller_config in config.midi_devices {
-        midi_controllers.push(MidiController::new(midi_controller_config, executor_value_sender.clone()).await?);
+    for midi_controller_config in &config.midi_devices {
+        midi_controllers.push(MidiController::new((*midi_controller_config).clone(), executor_value_sender.clone()).await?);
     }
     if midi_controllers.is_empty() {
         return Err("No midi devices configured".into());
     }
-    println!("Connected to {} midi device[s].", midi_controllers.len());
-
-    let ma_mutex = Arc::new(Mutex::new(MaInterface::new(&url, &login_credentials).await?));
-    tokio::spawn(fader_to_ma_forward_loop(ma_mutex.clone(), executor_value_receiver));
-    let mut interval = tokio::time::interval(Duration::from_millis(config.ma_poll_interval));
-    ma_poll_loop(&mut interval, &ma_mutex, &midi_controllers).await;
-    Ok(())
+    Ok(Arc::new(midi_controllers))
 }
 
-async fn ma_poll_loop(interval: &mut Interval, ma_mutex: &Arc<Mutex<MaInterface>>, midi_controllers: &Vec<MidiController>) {
+async fn ma_poll_loop(interval: &mut Interval, ma_mutex: Arc<Mutex<MaInterface>>, midi_controllers: &Vec<MidiController>) {
     loop {
         interval.tick().await;
 
@@ -60,7 +64,7 @@ async fn ma_poll_loop(interval: &mut Interval, ma_mutex: &Arc<Mutex<MaInterface>
                 let fader_lock_result = fader_mutex.try_lock();
                 if let Ok(mut fader_lock) = fader_lock_result {
                     for fader in fader_lock.iter_mut() {
-                        let _ = fader.set_value_from_ma(values[fader.get_executor_index() as usize]).await;
+                        fader.set_value_from_ma(values[fader.get_executor_index() as usize]).await.unwrap();
                     }
                 }
             }

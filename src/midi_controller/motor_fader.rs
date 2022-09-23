@@ -19,12 +19,12 @@ pub struct MotorFader {
 }
 
 impl MotorFader {
-    pub fn new(midi_tx: Arc<Mutex<MidiOutputConnection>>, ma_tx: UnboundedSender<ExecutorValue>, config: MotorFaderConfig) -> MotorFader {
+    pub fn new(midi_tx: Arc<Mutex<MidiOutputConnection>>, ma_tx: UnboundedSender<ExecutorValue>, config: &MotorFaderConfig) -> MotorFader {
         MotorFader {
             midi_tx,
             ma_tx,
             value: 0,
-            config: Arc::new(config),
+            config: Arc::new(config.clone()),
             ma_sender_task: None,
             ma_sending_value: Arc::new(Mutex::new(None)),
         }
