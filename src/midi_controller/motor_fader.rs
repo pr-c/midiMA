@@ -2,9 +2,9 @@ use std::error::Error;
 use std::sync::Arc;
 use std::time::Duration;
 use midir::MidiOutputConnection;
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinHandle;
 use crate::config::MotorFaderConfig;
-use crate::MaInterface;
 use tokio::sync::Mutex;
 use crate::ma_connection::ExecutorValue;
 use crate::midi_controller::MidiMessage;
@@ -13,13 +13,13 @@ pub struct MotorFader {
     config: Arc<MotorFaderConfig>,
     value: u8,
     midi_tx: Arc<Mutex<MidiOutputConnection>>,
-    ma_tx: Arc<Mutex<MaInterface>>,
+    ma_tx: UnboundedSender<ExecutorValue>,
     ma_sender_task: Option<JoinHandle<()>>,
     ma_sending_value: Arc<Mutex<Option<u8>>>,
 }
 
 impl MotorFader {
-    pub fn new(midi_tx: Arc<Mutex<MidiOutputConnection>>, ma_tx: Arc<Mutex<MaInterface>>, config: MotorFaderConfig) -> MotorFader {
+    pub fn new(midi_tx: Arc<Mutex<MidiOutputConnection>>, ma_tx: UnboundedSender<ExecutorValue>, config: MotorFaderConfig) -> MotorFader {
         MotorFader {
             midi_tx,
             ma_tx,
@@ -72,7 +72,7 @@ impl MotorFader {
         self.config.ma_executor_index
     }
 
-    pub async fn ma_update_loop(new_value: Arc<Mutex<Option<u8>>>, config: Arc<MotorFaderConfig>, ma: Arc<Mutex<MaInterface>>) {
+    pub async fn ma_update_loop(new_value: Arc<Mutex<Option<u8>>>, config: Arc<MotorFaderConfig>, ma_sender: UnboundedSender<ExecutorValue>) {
         let mut interval = tokio::time::interval(Duration::from_millis(50));
         loop {
             interval.tick().await;
@@ -80,8 +80,7 @@ impl MotorFader {
             if let Some(value) = *val_lock {
                 let value_clone = value;
                 *val_lock = None;
-                let mut ma_lock = ma.lock().await;
-                MotorFader::send_value_to_ma(&config, &mut ma_lock, value_clone);
+                MotorFader::send_value_to_ma(&config, &ma_sender, value_clone).unwrap();
             } else {
                 break;
             }
@@ -94,9 +93,13 @@ impl MotorFader {
         Ok(())
     }
 
-    fn send_value_to_ma(config: &Arc<MotorFaderConfig>, ma: &mut MaInterface, value: u8) {
+    fn send_value_to_ma(config: &Arc<MotorFaderConfig>, ma: &UnboundedSender<ExecutorValue>, value: u8) -> Result<(), Box<dyn Error>> {
         let ma_value = MotorFader::fader_value_to_ma_value(config, value);
-        let _ = ma.send_executor_value(&ExecutorValue::new(config.ma_executor_index as u32, 0, ma_value));
+        let send_result = ma.send(ExecutorValue::new(config.ma_executor_index as u32, 0, ma_value));
+        if send_result.is_err() {
+            return Err("Receiver was closed.".into());
+        }
+        Ok(())
     }
 
     fn fader_value_to_ma_value(config: &Arc<MotorFaderConfig>, v: u8) -> f32 {

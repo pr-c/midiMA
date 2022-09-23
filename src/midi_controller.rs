@@ -6,10 +6,10 @@ use std::sync::{Arc};
 use motor_fader::MotorFader;
 use tokio::sync::{mpsc, Mutex};
 use crate::config::MidiControllerConfig;
-use crate::MaInterface;
 use midir::{MidiIO, MidiInput, MidiInputConnection, MidiOutput};
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
+use crate::ma_connection::ExecutorValue;
 
 pub struct MidiMessage {
     data: [u8; 3],
@@ -36,7 +36,7 @@ async fn receiver_task(mut message_source: UnboundedReceiver<MidiMessage>, motor
 }
 
 impl MidiController {
-    pub async fn new(config: MidiControllerConfig, ma_mutex: Arc<Mutex<MaInterface>>) -> Result<MidiController, Box<dyn Error>> {
+    pub async fn new(config: MidiControllerConfig, ma_sender: UnboundedSender<ExecutorValue>) -> Result<MidiController, Box<dyn Error>> {
         let mut midi_out = MidiOutput::new(&("MidiMA out ".to_owned() + &config.midi_out_port_name))?;
         let mut midi_in = MidiInput::new(&("MidiMA in ".to_owned() + &config.midi_in_port_name))?;
 
@@ -48,7 +48,7 @@ impl MidiController {
         let motor_faders_mutex = Arc::new(Mutex::new(Vec::new()));
         let mut lock = motor_faders_mutex.lock().await;
         for motor_fader_config in config.motor_faders {
-            lock.push(MotorFader::new(connection_tx.clone(), ma_mutex.clone(), motor_fader_config));
+            lock.push(MotorFader::new(connection_tx.clone(), ma_sender.clone(), motor_fader_config));
         }
         drop(lock);
 
