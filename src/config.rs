@@ -41,7 +41,6 @@ impl Config {
 pub struct MidiControllerConfig {
     pub midi_in_port_name: String,
     pub midi_out_port_name: String,
-    pub faders: Vec<FaderConfig>,
     pub motor_faders: Vec<MotorFaderConfig>,
 }
 
