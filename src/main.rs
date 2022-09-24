@@ -13,7 +13,7 @@ use std::sync::{Arc};
 use std::time::Duration;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::Mutex;
-use tokio::time::Interval;
+use tokio::time::Instant;
 
 use url::Url;
 
@@ -35,16 +35,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
     main_loop(config, login_credentials, midi_controllers, executor_value_receiver).await
 }
 
-async fn main_loop(config: Arc<Config>, login_credentials: LoginCredentials, midi_controllers: Arc<Vec<MidiController>>, executor_value_receiver: UnboundedReceiver<ExecutorValue>) -> Result<(), Box<dyn Error>>{
-    let url = Url::parse(&("ws://".to_string() + &config.console_ip))?;
-    let ma_mutex = Arc::new(Mutex::new(MaInterface::new(&url, &login_credentials).await?));
-    tokio::spawn(fader_to_ma_forward_loop(ma_mutex.clone(), executor_value_receiver));
-    let mut interval = tokio::time::interval(Duration::from_millis(config.ma_poll_interval));
-    ma_poll_loop(&mut interval, ma_mutex.clone(), &midi_controllers).await;
-    Ok(())
+async fn main_loop(config: Arc<Config>, login_credentials: LoginCredentials, midi_controllers: Arc<Vec<MidiController>>, executor_value_receiver: UnboundedReceiver<ExecutorValue>) -> Result<(), Box<dyn Error>> {
+    let exec_value_receiver_mutex = Arc::new(Mutex::new(executor_value_receiver));
+    loop {
+        let url = Url::parse(&("ws://".to_string() + &config.console_ip))?;
+        let ma_mutex = Arc::new(Mutex::new(MaInterface::new(&url, &login_credentials).await?));
+        println!("Connected to MA2 at {:?}", url.to_string());
+        let forward_task = tokio::spawn(fader_to_ma_forward_loop(ma_mutex.clone(), exec_value_receiver_mutex.clone()));
+
+        let last_message_received = Arc::new(Mutex::new(Instant::now()));
+
+        ma_poll_loop(config.ma_poll_interval, ma_mutex.clone(), &midi_controllers, last_message_received).await;
+        forward_task.abort();
+        println!("Network fail. Trying to reconnect...");
+    }
 }
 
-async fn init_midi_controllers(config: &Arc<Config>, executor_value_sender: UnboundedSender<ExecutorValue>) -> Result<Arc<Vec<MidiController>>, Box<dyn Error>>{
+async fn init_midi_controllers(config: &Arc<Config>, executor_value_sender: UnboundedSender<ExecutorValue>) -> Result<Arc<Vec<MidiController>>, Box<dyn Error>> {
     let mut midi_controllers = Vec::new();
     for midi_controller_config in &config.midi_devices {
         midi_controllers.push(MidiController::new((*midi_controller_config).clone(), executor_value_sender.clone()).await?);
@@ -55,28 +62,35 @@ async fn init_midi_controllers(config: &Arc<Config>, executor_value_sender: Unbo
     Ok(Arc::new(midi_controllers))
 }
 
-async fn ma_poll_loop(interval: &mut Interval, ma_mutex: Arc<Mutex<MaInterface>>, midi_controllers: &Vec<MidiController>) {
+async fn ma_poll_loop(poll_interval: u64, ma_mutex: Arc<Mutex<MaInterface>>, midi_controllers: &Vec<MidiController>, last_message_received: Arc<Mutex<Instant>>) {
+    let mut interval = tokio::time::interval(Duration::from_millis(poll_interval));
     loop {
         interval.tick().await;
 
         let mut ma_lock = ma_mutex.lock().await;
-        let result = ma_lock.poll_fader_values().await;
+        let timeout_result = tokio::time::timeout(Duration::from_millis(2000), ma_lock.poll_fader_values()).await;
         drop(ma_lock);
-        if let Ok(values) = result {
-            for controller in midi_controllers {
-                let fader_mutex = controller.get_motor_faders_mutex();
-                let fader_lock_result = fader_mutex.try_lock();
-                if let Ok(mut fader_lock) = fader_lock_result {
-                    for fader in fader_lock.iter_mut() {
-                        fader.set_value_from_ma(values[fader.get_executor_index() as usize]).await.unwrap();
+        if let Ok(result) = timeout_result {
+            if let Ok(values) = result {
+                *last_message_received.lock().await = Instant::now();
+                for controller in midi_controllers {
+                    let fader_mutex = controller.get_motor_faders_mutex();
+                    let fader_lock_result = fader_mutex.try_lock();
+                    if let Ok(mut fader_lock) = fader_lock_result {
+                        for fader in fader_lock.iter_mut() {
+                            fader.set_value_from_ma(values[fader.get_executor_index() as usize]).await.unwrap();
+                        }
                     }
                 }
             }
+        } else {
+            break;
         }
     }
 }
 
-async fn fader_to_ma_forward_loop(ma: Arc<Mutex<MaInterface>>, mut exec_value_receiver: UnboundedReceiver<ExecutorValue>) {
+async fn fader_to_ma_forward_loop(ma: Arc<Mutex<MaInterface>>, exec_value_receiver_mutex: Arc<Mutex<UnboundedReceiver<ExecutorValue>>>) {
+    let mut exec_value_receiver = exec_value_receiver_mutex.lock().await;
     loop {
         let next = exec_value_receiver.recv().await;
         if let Some(value) = next {

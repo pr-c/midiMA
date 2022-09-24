@@ -257,6 +257,5 @@ impl Drop for MaInterface {
     fn drop(&mut self) {
         self.keep_alive_thread.abort();
         self.receiver_thread.abort();
-        println!("MaConnection closed");
     }
 }
