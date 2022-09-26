@@ -15,8 +15,8 @@ pub struct MotorFader {
     value: u8,
     midi_tx: UnboundedSender<MidiMessage>,
     ma_tx: UnboundedSender<FaderValue>,
-    ma_sender_task: Option<JoinHandle<()>>,
-    ma_sending_value: Arc<Mutex<Option<u8>>>,
+    ma_tx_task: Option<JoinHandle<()>>,
+    ma_tx_value: Arc<Mutex<Option<u8>>>,
 }
 
 impl MotorFader {
@@ -26,12 +26,12 @@ impl MotorFader {
             ma_tx,
             value: 0,
             config: Arc::new(config.clone()),
-            ma_sender_task: None,
-            ma_sending_value: Arc::new(Mutex::new(None)),
+            ma_tx_task: None,
+            ma_tx_value: Arc::new(Mutex::new(None)),
         }
     }
     fn start_ma_update(&mut self) {
-        self.ma_sender_task = Some(tokio::spawn(MotorFader::ma_update_loop(self.ma_sending_value.clone(), self.config.clone(), self.ma_tx.clone())));
+        self.ma_tx_task = Some(tokio::spawn(MotorFader::ma_update_loop(self.ma_tx_value.clone(), self.config.clone(), self.ma_tx.clone())));
     }
 
     pub fn get_executor_index(&self) -> u8 {
@@ -46,7 +46,7 @@ impl MotorFader {
             if let Some(value) = *val_guard {
                 let value_clone = value;
                 *val_guard = None;
-                MotorFader::send_value_to_ma(&config, &ma_sender, value_clone).unwrap();
+                Self::send_value_to_ma(&config, &ma_sender, value_clone).unwrap();
             } else {
                 break;
             }
@@ -65,7 +65,7 @@ impl MotorFader {
     }
 
     fn send_value_to_ma(config: &Arc<MotorFaderConfig>, ma: &UnboundedSender<FaderValue>, value: u8) -> Result<(), Box<dyn Error>> {
-        let ma_value = MotorFader::fader_value_to_ma_value(config, value);
+        let ma_value = Self::fader_value_to_ma_value(config, value);
         let send_result = ma.send(FaderValue {
             exec_index: config.ma_executor_index,
             page_index: 0,
@@ -93,15 +93,15 @@ impl Hardware for MotorFader {
             if self.value != new_value {
                 self.value = new_value;
 
-                let mut val_lock = self.ma_sending_value.try_lock();
+                let mut val_lock = self.ma_tx_value.try_lock();
                 if let Ok(ref mut v) = val_lock {
                     **v = Some(self.value);
                 }
                 drop(val_lock);
 
-                if self.ma_sender_task.is_none() {
+                if self.ma_tx_task.is_none() {
                     self.start_ma_update();
-                } else if let Some(handle) = &self.ma_sender_task {
+                } else if let Some(handle) = &self.ma_tx_task {
                     if handle.is_finished() {
                         self.start_ma_update();
                     }
@@ -118,7 +118,7 @@ impl Hardware for MotorFader {
 impl MaControlledHardware for MotorFader {
     fn set_value_from_ma(&mut self, value: ValueChange) -> Result<(), Box<dyn Error>> {
         if let FaderChange(fader_value) = value {
-            let new_value = MotorFader::ma_value_to_fader_value(&self.config, fader_value.fader_value);
+            let new_value = Self::ma_value_to_fader_value(&self.config, fader_value.fader_value);
             if new_value != self.value {
                 self.value = new_value;
                 self.send_value_to_midi()?;
@@ -130,7 +130,7 @@ impl MaControlledHardware for MotorFader {
 
 impl Drop for MotorFader {
     fn drop(&mut self) {
-        if let Some(join_handle) = &mut self.ma_sender_task {
+        if let Some(join_handle) = &mut self.ma_tx_task {
             join_handle.abort();
         }
     }

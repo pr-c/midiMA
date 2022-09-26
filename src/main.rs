@@ -45,9 +45,9 @@ async fn main_loop(config: Arc<Config>, login_credentials: LoginCredentials, mid
         println!("Connected to MA2 at {:?}", url.to_string());
         let forward_task = tokio::spawn(fader_to_ma_forward_loop(ma_mutex.clone(), exec_value_receiver_mutex.clone()));
 
-        let last_message_received = Arc::new(Mutex::new(Instant::now()));
+        let last_message_received_instant = Arc::new(Mutex::new(Instant::now()));
 
-        ma_poll_loop(config.ma_poll_interval, ma_mutex.clone(), &midi_controllers, last_message_received).await;
+        ma_poll_loop(config.ma_poll_interval, ma_mutex.clone(), &midi_controllers, last_message_received_instant).await;
         forward_task.abort();
         println!("Network fail. Trying to reconnect...");
     }
@@ -64,7 +64,7 @@ async fn init_midi_controllers(config: &Arc<Config>, executor_value_sender: Unbo
     Ok(Arc::new(midi_controllers))
 }
 
-async fn ma_poll_loop(poll_interval: u64, ma_mutex: Arc<Mutex<MaInterface>>, midi_controllers: &Vec<MidiController>, last_message_received: Arc<Mutex<Instant>>) {
+async fn ma_poll_loop(poll_interval: u64, ma_mutex: Arc<Mutex<MaInterface>>, midi_controllers: &Vec<MidiController>, last_message_received_instant: Arc<Mutex<Instant>>) {
     let mut interval = tokio::time::interval(Duration::from_millis(poll_interval));
     loop {
         interval.tick().await;
@@ -74,7 +74,7 @@ async fn ma_poll_loop(poll_interval: u64, ma_mutex: Arc<Mutex<MaInterface>>, mid
         drop(ma_lock);
         if let Ok(result) = timeout_result {
             if let Ok(values) = result {
-                *last_message_received.lock().await = Instant::now();
+                *last_message_received_instant.lock().await = Instant::now();
                 for controller in midi_controllers {
                     let fader_mutex = controller.get_motor_faders_mutex();
                     let fader_lock_result = fader_mutex.try_lock();
