@@ -1,12 +1,12 @@
 extern crate core;
 
 mod config;
-mod ma_connection;
+mod ma_interface;
 mod midi_controller;
 
-use crate::ma_connection::{ExecutorValue, LoginCredentials};
+use crate::ma_interface::{FaderValue, LoginCredentials};
 use config::Config;
-use ma_connection::MaInterface;
+use ma_interface::MaInterface;
 use midi_controller::MidiController;
 use std::error::Error;
 use std::sync::{Arc};
@@ -16,6 +16,8 @@ use tokio::sync::Mutex;
 use tokio::time::Instant;
 
 use url::Url;
+use crate::ma_interface::ValueChange::FaderChange;
+use crate::midi_controller::ma_controlled_hardware::MaControlledHardware;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -35,7 +37,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     main_loop(config, login_credentials, midi_controllers, executor_value_receiver).await
 }
 
-async fn main_loop(config: Arc<Config>, login_credentials: LoginCredentials, midi_controllers: Arc<Vec<MidiController>>, executor_value_receiver: UnboundedReceiver<ExecutorValue>) -> Result<(), Box<dyn Error>> {
+async fn main_loop(config: Arc<Config>, login_credentials: LoginCredentials, midi_controllers: Arc<Vec<MidiController>>, executor_value_receiver: UnboundedReceiver<FaderValue>) -> Result<(), Box<dyn Error>> {
     let exec_value_receiver_mutex = Arc::new(Mutex::new(executor_value_receiver));
     loop {
         let url = Url::parse(&("ws://".to_string() + &config.console_ip))?;
@@ -51,7 +53,7 @@ async fn main_loop(config: Arc<Config>, login_credentials: LoginCredentials, mid
     }
 }
 
-async fn init_midi_controllers(config: &Arc<Config>, executor_value_sender: UnboundedSender<ExecutorValue>) -> Result<Arc<Vec<MidiController>>, Box<dyn Error>> {
+async fn init_midi_controllers(config: &Arc<Config>, executor_value_sender: UnboundedSender<FaderValue>) -> Result<Arc<Vec<MidiController>>, Box<dyn Error>> {
     let mut midi_controllers = Vec::new();
     for midi_controller_config in &config.midi_devices {
         midi_controllers.push(MidiController::new((*midi_controller_config).clone(), executor_value_sender.clone()).await?);
@@ -78,7 +80,11 @@ async fn ma_poll_loop(poll_interval: u64, ma_mutex: Arc<Mutex<MaInterface>>, mid
                     let fader_lock_result = fader_mutex.try_lock();
                     if let Ok(mut fader_lock) = fader_lock_result {
                         for fader in fader_lock.iter_mut() {
-                            fader.set_value_from_ma(values[fader.get_executor_index() as usize]).await.unwrap();
+                            fader.set_value_from_ma(FaderChange(FaderValue {
+                                fader_value: values[fader.get_executor_index() as usize],
+                                page_index: 0,
+                                exec_index: fader.get_executor_index()
+                            })).unwrap();
                         }
                     }
                 }
@@ -89,7 +95,7 @@ async fn ma_poll_loop(poll_interval: u64, ma_mutex: Arc<Mutex<MaInterface>>, mid
     }
 }
 
-async fn fader_to_ma_forward_loop(ma: Arc<Mutex<MaInterface>>, exec_value_receiver_mutex: Arc<Mutex<UnboundedReceiver<ExecutorValue>>>) {
+async fn fader_to_ma_forward_loop(ma: Arc<Mutex<MaInterface>>, exec_value_receiver_mutex: Arc<Mutex<UnboundedReceiver<FaderValue>>>) {
     let mut exec_value_receiver = exec_value_receiver_mutex.lock().await;
     loop {
         let next = exec_value_receiver.recv().await;

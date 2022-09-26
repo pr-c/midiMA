@@ -1,15 +1,16 @@
-mod motor_fader;
+pub mod ma_controlled_hardware;
 
 use std::error::Error;
-use std::sync::{Arc};
+use std::sync::Arc;
 
-use motor_fader::MotorFader;
+use ma_controlled_hardware::motor_fader::MotorFader;
 use tokio::sync::{mpsc, Mutex};
 use crate::config::MidiControllerConfig;
-use midir::{MidiIO, MidiInput, MidiInputConnection, MidiOutput};
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use midir::{MidiInput, MidiInputConnection, MidiIO, MidiOutput, MidiOutputConnection};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
-use crate::ma_connection::ExecutorValue;
+use crate::ma_interface::FaderValue;
+use crate::midi_controller::ma_controlled_hardware::Hardware;
 
 pub struct MidiMessage {
     data: [u8; 3],
@@ -17,43 +18,33 @@ pub struct MidiMessage {
 
 pub struct MidiController {
     motor_faders: Arc<Mutex<Vec<MotorFader>>>,
-    receiver_task_handle: JoinHandle<()>,
+    midi_message_receiver_task: JoinHandle<()>,
+    midi_message_sender_task: JoinHandle<()>,
     _connection_rx: MidiInputConnection<()>,
 }
 
-async fn receiver_task(mut message_source: UnboundedReceiver<MidiMessage>, motor_faders_mutex: Arc<Mutex<Vec<MotorFader>>>) {
-    loop {
-        let message_option = message_source.recv().await;
-        if let Some(message) = &message_option {
-            let mut fader_lock = motor_faders_mutex.lock().await;
-            for motor_fader in fader_lock.iter_mut() {
-                motor_fader.set_value_from_midi(message).await;
-            }
-        } else {
-            break;
-        }
-    }
-}
-
 impl MidiController {
-    pub async fn new(config: MidiControllerConfig, ma_sender: UnboundedSender<ExecutorValue>) -> Result<MidiController, Box<dyn Error>> {
+    pub async fn new(config: MidiControllerConfig, ma_sender: UnboundedSender<FaderValue>) -> Result<MidiController, Box<dyn Error>> {
         let mut midi_out = MidiOutput::new(&("MidiMA out ".to_owned() + &config.midi_out_port_name))?;
         let mut midi_in = MidiInput::new(&("MidiMA in ".to_owned() + &config.midi_in_port_name))?;
 
         let port_in = MidiController::find_midi_port(&mut midi_in, &config.midi_in_port_name)?;
         let port_out = MidiController::find_midi_port(&mut midi_out, &config.midi_out_port_name)?;
 
-        let connection_tx = Arc::new(Mutex::new(midi_out.connect(&port_out, &config.midi_out_port_name)?));
+        let connection_tx = midi_out.connect(&port_out, &config.midi_out_port_name)?;
+
+        let (sender, receiver) = unbounded_channel();
+        let midi_message_sender_task = tokio::spawn(Self::midi_sender_loop(receiver, connection_tx));
 
         let motor_faders_mutex = Arc::new(Mutex::new(Vec::new()));
         let mut lock = motor_faders_mutex.lock().await;
         for motor_fader_config in &config.motor_faders {
-            lock.push(MotorFader::new(connection_tx.clone(), ma_sender.clone(), motor_fader_config));
+            lock.push(MotorFader::new(sender.clone(), ma_sender.clone(), motor_fader_config));
         }
         drop(lock);
 
         let (tx, rx) = mpsc::unbounded_channel();
-        let receiver_task_handle = tokio::spawn(receiver_task(rx, motor_faders_mutex.clone()));
+        let midi_message_receiver_task = tokio::spawn(Self::midi_receiver_loop(rx, motor_faders_mutex.clone()));
 
 
         let connection_rx = midi_in.connect(
@@ -73,8 +64,29 @@ impl MidiController {
         Ok(MidiController {
             _connection_rx: connection_rx,
             motor_faders: motor_faders_mutex,
-            receiver_task_handle,
+            midi_message_receiver_task,
+            midi_message_sender_task,
         })
+    }
+
+    async fn midi_receiver_loop(mut message_source: UnboundedReceiver<MidiMessage>, motor_faders_mutex: Arc<Mutex<Vec<MotorFader>>>) {
+        loop {
+            let message_option = message_source.recv().await;
+            if let Some(message) = &message_option {
+                let mut fader_lock = motor_faders_mutex.lock().await;
+                for motor_fader in fader_lock.iter_mut() {
+                    motor_fader.set_value_from_midi(message).unwrap();
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
+    async fn midi_sender_loop(mut receiver: UnboundedReceiver<MidiMessage>, mut connection_tx: MidiOutputConnection) {
+        while let Some(message) = receiver.recv().await {
+            connection_tx.send(&message.data).unwrap();
+        }
     }
 
     pub fn get_motor_faders_mutex(&self) -> Arc<Mutex<Vec<MotorFader>>> {
@@ -93,6 +105,7 @@ impl MidiController {
 
 impl Drop for MidiController {
     fn drop(&mut self) {
-        self.receiver_task_handle.abort();
+        self.midi_message_receiver_task.abort();
+        self.midi_message_sender_task.abort();
     }
 }

@@ -100,7 +100,7 @@ pub struct PlaybacksUserInputRequest {
     #[serde(rename = "requestType")]
     request_type: String,
     #[serde(rename = "execIndex")]
-    exec_index: u32,
+    exec_index: u8,
     #[serde(rename = "pageIndex")]
     page_index: u32,
     #[serde(rename = "faderValue")]
@@ -111,7 +111,7 @@ pub struct PlaybacksUserInputRequest {
 }
 
 impl PlaybacksUserInputRequest {
-    pub fn new(session: i32, exec_index: u32, page_index: u32, fader_value: f32) -> PlaybacksUserInputRequest {
+    pub fn new(session: i32, exec_index: u8, page_index: u32, fader_value: f32) -> PlaybacksUserInputRequest {
         PlaybacksUserInputRequest {
             request_type: "playbacks_userInput".to_string(),
             exec_index,

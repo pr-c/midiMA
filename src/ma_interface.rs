@@ -3,8 +3,8 @@ pub mod objects;
 mod requests;
 pub mod responses;
 
-use crate::ma_connection::requests::{LoginRequest, PlaybacksRequest, PlaybacksUserInputRequest, SessionIdRequest};
-use crate::ma_connection::responses::{LoginRequestResponse, SessionIdResponse};
+use crate::ma_interface::requests::{LoginRequest, PlaybacksRequest, PlaybacksUserInputRequest, SessionIdRequest};
+use crate::ma_interface::responses::{LoginRequestResponse, SessionIdResponse};
 use connection::Connection;
 use futures_util::StreamExt;
 use requests::RequestType;
@@ -27,20 +27,14 @@ pub struct LoginCredentials {
     pub password_hash: String,
 }
 
-pub struct ExecutorValue {
-    pub exec_index: u32,
-    pub page_index: u32,
-    pub fader_value: f32,
+pub enum ValueChange {
+    FaderChange(FaderValue),
 }
 
-impl ExecutorValue {
-    pub fn new(exec_index: u32, page_index: u32, fader_value: f32) -> Self {
-        Self {
-            exec_index,
-            page_index,
-            fader_value,
-        }
-    }
+pub struct FaderValue {
+    pub exec_index: u8,
+    pub page_index: u32,
+    pub fader_value: f32,
 }
 
 struct ResponseSenders {
@@ -136,7 +130,7 @@ impl MaInterface {
         }
     }
 
-    pub fn send_executor_value(&mut self, executor_value: &ExecutorValue) -> Result<(), Box<dyn Error>> {
+    pub fn send_executor_value(&mut self, executor_value: &FaderValue) -> Result<(), Box<dyn Error>> {
         let request = PlaybacksUserInputRequest::new(self.session_id, executor_value.exec_index, executor_value.page_index, executor_value.fader_value);
         self.send_request(request)?;
         Ok(())
