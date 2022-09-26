@@ -4,7 +4,7 @@ use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinHandle;
 use crate::config::MotorFaderConfig;
-use tokio::sync::Mutex;
+use std::sync::Mutex;
 use crate::ma_interface::{FaderValue, ValueChange};
 use crate::ma_interface::ValueChange::FaderChange;
 use crate::midi_controller::ma_controlled_hardware::{Hardware, MaControlledHardware};
@@ -42,10 +42,10 @@ impl MotorFader {
         let mut interval = tokio::time::interval(Duration::from_millis(50));
         loop {
             interval.tick().await;
-            let mut val_lock = new_value.lock().await;
-            if let Some(value) = *val_lock {
+            let mut val_guard = new_value.lock().unwrap();
+            if let Some(value) = *val_guard {
                 let value_clone = value;
-                *val_lock = None;
+                *val_guard = None;
                 MotorFader::send_value_to_ma(&config, &ma_sender, value_clone).unwrap();
             } else {
                 break;
