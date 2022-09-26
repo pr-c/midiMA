@@ -4,7 +4,7 @@ use std::error::Error;
 use std::sync::Arc;
 
 use ma_controlled_hardware::motor_fader::MotorFader;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::Mutex;
 use crate::config::MidiControllerConfig;
 use midir::{MidiInput, MidiInputConnection, MidiIO, MidiOutput, MidiOutputConnection};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
@@ -43,7 +43,7 @@ impl MidiController {
         }
         drop(lock);
 
-        let (tx, rx) = mpsc::unbounded_channel();
+        let (tx, rx) = unbounded_channel();
         let midi_message_receiver_task = tokio::spawn(Self::midi_receiver_loop(rx, motor_faders_mutex.clone()));
 
 
@@ -70,15 +70,10 @@ impl MidiController {
     }
 
     async fn midi_receiver_loop(mut message_source: UnboundedReceiver<MidiMessage>, motor_faders_mutex: Arc<Mutex<Vec<MotorFader>>>) {
-        loop {
-            let message_option = message_source.recv().await;
-            if let Some(message) = &message_option {
-                let mut fader_lock = motor_faders_mutex.lock().await;
-                for motor_fader in fader_lock.iter_mut() {
-                    motor_fader.set_value_from_midi(message).unwrap();
-                }
-            } else {
-                break;
+        while let Some(message) = &message_source.recv().await {
+            let mut fader_lock = motor_faders_mutex.lock().await;
+            for motor_fader in fader_lock.iter_mut() {
+                motor_fader.set_value_from_midi(message).unwrap();
             }
         }
     }

@@ -83,7 +83,7 @@ async fn ma_poll_loop(poll_interval: u64, ma_mutex: Arc<Mutex<MaInterface>>, mid
                             fader.set_value_from_ma(FaderChange(FaderValue {
                                 fader_value: values[fader.get_executor_index() as usize],
                                 page_index: 0,
-                                exec_index: fader.get_executor_index()
+                                exec_index: fader.get_executor_index(),
                             })).unwrap();
                         }
                     }
@@ -97,13 +97,8 @@ async fn ma_poll_loop(poll_interval: u64, ma_mutex: Arc<Mutex<MaInterface>>, mid
 
 async fn fader_to_ma_forward_loop(ma: Arc<Mutex<MaInterface>>, exec_value_receiver_mutex: Arc<Mutex<UnboundedReceiver<FaderValue>>>) {
     let mut exec_value_receiver = exec_value_receiver_mutex.lock().await;
-    loop {
-        let next = exec_value_receiver.recv().await;
-        if let Some(value) = next {
-            ma.lock().await.send_executor_value(&value).unwrap();
-        } else {
-            break;
-        }
+    while let Some(value) = exec_value_receiver.recv().await {
+        ma.lock().await.send_executor_value(&value).unwrap();
     }
 }
 
