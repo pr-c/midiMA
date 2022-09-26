@@ -93,8 +93,10 @@ impl Hardware for MotorFader {
             if self.value != new_value {
                 self.value = new_value;
 
-                let mut val_lock = self.ma_sending_value.blocking_lock();
-                *val_lock = Some(self.value);
+                let mut val_lock = self.ma_sending_value.try_lock();
+                if let Ok(ref mut v) = val_lock {
+                    **v = Some(self.value);
+                }
                 drop(val_lock);
 
                 if self.ma_sender_task.is_none() {
