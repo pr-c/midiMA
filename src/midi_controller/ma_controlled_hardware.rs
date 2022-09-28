@@ -1,4 +1,5 @@
 pub mod motor_fader;
+pub mod rotary_encoder;
 
 use std::error::Error;
 use crate::ma_interface;
