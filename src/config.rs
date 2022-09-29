@@ -42,14 +42,12 @@ pub struct MidiControllerConfig {
     pub midi_in_port_name: String,
     pub midi_out_port_name: String,
     pub motor_faders: Vec<MotorFaderConfig>,
+    pub rotary_encoders: Vec<RotaryEncoderConfig>
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct FaderConfig {
-    pub input_midi_byte_0: u8,
-    pub input_midi_byte_1: u8,
-    pub min_value: Option<u8>,
-    pub max_value: Option<u8>,
+pub struct RotaryEncoderConfig {
+
 }
 
 #[derive(Serialize, Deserialize, Clone)]
