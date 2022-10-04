@@ -2,16 +2,17 @@ use std::error::Error;
 use crate::midi_controller::ma_controlled_hardware::Hardware;
 use crate::midi_controller::MidiMessage;
 use async_trait::async_trait;
+use crate::config::RotaryEncoderConfig;
 
 pub struct RotaryEncoder {
-
+    config: RotaryEncoderConfig
 }
 
 
 impl RotaryEncoder {
-    pub fn new() -> Self {
+    pub fn new(config: &RotaryEncoderConfig) -> Self {
         Self{
-
+            config: config.clone()
         }
     }
 }

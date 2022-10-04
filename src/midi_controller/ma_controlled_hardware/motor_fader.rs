@@ -1,5 +1,4 @@
 use std::error::Error;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::UnboundedSender;
 use crate::config::MotorFaderConfig;
@@ -12,7 +11,7 @@ use crate::midi_controller::MidiMessage;
 use async_trait::async_trait;
 
 pub struct MotorFader {
-    config: Arc<MotorFaderConfig>,
+    config: MotorFaderConfig,
     value: u8,
     midi_tx: UnboundedSender<MidiMessage>,
     periodic_sender: PeriodicUpdateSender<FaderValue>,
@@ -25,7 +24,7 @@ impl MotorFader {
         Ok(MotorFader {
             midi_tx,
             value: 0,
-            config: Arc::new(config.clone()),
+            config: config.clone(),
             periodic_sender,
         })
     }
@@ -67,7 +66,7 @@ impl MotorFader {
         ((v - self.config.min_value.unwrap_or(0)) as f32) / (self.config.max_value.unwrap_or(127) as f32)
     }
 
-    fn ma_value_to_fader_value(config: &Arc<MotorFaderConfig>, v: f32) -> u8 {
+    fn ma_value_to_fader_value(config: &MotorFaderConfig, v: f32) -> u8 {
         (v * (config.max_value.unwrap_or(127) as f32)).round() as u8 + config.min_value.unwrap_or(0)
     }
 }

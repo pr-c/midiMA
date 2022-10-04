@@ -74,12 +74,10 @@ async fn ma_poll_loop(poll_interval: u64, ma_mutex: Arc<Mutex<MaInterface>>, mid
             if let Ok(values) = result {
                 *last_message_received_instant.lock().await = Instant::now();
                 for controller in midi_controllers {
-                    let fader_mutex = controller.get_motor_faders_mutex();
-                    let fader_lock_result = fader_mutex.try_lock();
-                    if let Ok(mut fader_lock) = fader_lock_result {
-                        for fader in fader_lock.iter_mut() {
-                            fader.set_value_from_ma(values[fader.get_executor_index() as usize]).unwrap();
-                        }
+                    let controls_mutex = controller.get_controls();
+                    let mut controls_lock = controls_mutex.lock().await;
+                    for fader in controls_lock.motor_faders.iter_mut() {
+                        fader.set_value_from_ma(values[fader.get_executor_index() as usize]).unwrap();
                     }
                 }
             }
