@@ -122,3 +122,25 @@ impl PlaybacksUserInputRequest {
         }
     }
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct EncoderChangeRequest {
+    name: String,
+    #[serde(rename = "requestType")]
+    request_type: String,
+    value: f32,
+    resolution: f32,
+    session: i32,
+}
+
+impl EncoderChangeRequest {
+    pub fn new(session: i32, name: String, value: f32, resolution: f32) -> Self {
+        Self {
+            session,
+            name,
+            value,
+            resolution,
+            request_type: String::from("encoder"),
+        }
+    }
+}
