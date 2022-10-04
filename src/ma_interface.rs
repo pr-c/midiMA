@@ -27,10 +27,6 @@ pub struct LoginCredentials {
     pub password_hash: String,
 }
 
-pub enum ValueChange {
-    FaderChange(FaderValue),
-}
-
 pub struct FaderValue {
     pub exec_index: u8,
     pub page_index: u32,

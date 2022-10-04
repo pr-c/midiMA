@@ -5,9 +5,8 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::JoinHandle;
 use crate::config::MotorFaderConfig;
 use std::sync::Mutex;
-use crate::ma_interface::{FaderValue, ValueChange};
-use crate::ma_interface::ValueChange::FaderChange;
-use crate::midi_controller::ma_controlled_hardware::{Hardware, MaControlledHardware};
+use crate::ma_interface::FaderValue;
+use crate::midi_controller::ma_controlled_hardware::Hardware;
 use crate::midi_controller::MidiMessage;
 
 pub struct MotorFader {
@@ -36,6 +35,15 @@ impl MotorFader {
 
     pub fn get_executor_index(&self) -> u8 {
         self.config.ma_executor_index
+    }
+
+    pub fn set_value_from_ma(&mut self, fader_value: f32) -> Result<(), Box<dyn Error>> {
+        let new_value = Self::ma_value_to_fader_value(&self.config, fader_value);
+        if new_value != self.value {
+            self.value = new_value;
+            self.send_value_to_midi()?;
+        }
+        Ok(())
     }
 
     async fn ma_update_loop(new_value: Arc<Mutex<Option<u8>>>, config: Arc<MotorFaderConfig>, ma_sender: UnboundedSender<FaderValue>) {
@@ -109,19 +117,6 @@ impl Hardware for MotorFader {
                 if self.config.input_feedback.unwrap_or(true) {
                     let _ = self.send_value_to_midi();
                 }
-            }
-        }
-        Ok(())
-    }
-}
-
-impl MaControlledHardware for MotorFader {
-    fn set_value_from_ma(&mut self, value: ValueChange) -> Result<(), Box<dyn Error>> {
-        if let FaderChange(fader_value) = value {
-            let new_value = Self::ma_value_to_fader_value(&self.config, fader_value.fader_value);
-            if new_value != self.value {
-                self.value = new_value;
-                self.send_value_to_midi()?;
             }
         }
         Ok(())

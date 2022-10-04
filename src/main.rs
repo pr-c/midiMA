@@ -16,8 +16,6 @@ use tokio::sync::Mutex;
 use tokio::time::Instant;
 
 use url::Url;
-use crate::ma_interface::ValueChange::FaderChange;
-use crate::midi_controller::ma_controlled_hardware::MaControlledHardware;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
@@ -80,11 +78,7 @@ async fn ma_poll_loop(poll_interval: u64, ma_mutex: Arc<Mutex<MaInterface>>, mid
                     let fader_lock_result = fader_mutex.try_lock();
                     if let Ok(mut fader_lock) = fader_lock_result {
                         for fader in fader_lock.iter_mut() {
-                            fader.set_value_from_ma(FaderChange(FaderValue {
-                                fader_value: values[fader.get_executor_index() as usize],
-                                page_index: 0,
-                                exec_index: fader.get_executor_index(),
-                            })).unwrap();
+                            fader.set_value_from_ma(values[fader.get_executor_index() as usize]).unwrap();
                         }
                     }
                 }
