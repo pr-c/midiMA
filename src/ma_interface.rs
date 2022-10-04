@@ -27,6 +27,7 @@ pub struct LoginCredentials {
     pub password_hash: String,
 }
 
+#[derive(Clone, Copy)]
 pub struct FaderValue {
     pub exec_index: u8,
     pub page_index: u32,

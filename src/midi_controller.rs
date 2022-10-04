@@ -39,7 +39,7 @@ impl MidiController {
         let motor_faders_mutex = Arc::new(Mutex::new(Vec::new()));
         let mut lock = motor_faders_mutex.lock().await;
         for motor_fader_config in &config.motor_faders {
-            lock.push(MotorFader::new(midi_tx_channel_sender.clone(), ma_sender.clone(), motor_fader_config));
+            lock.push(MotorFader::new(midi_tx_channel_sender.clone(), ma_sender.clone(), motor_fader_config)?);
         }
         drop(lock);
 
@@ -72,7 +72,7 @@ impl MidiController {
         while let Some(message) = &message_source.recv().await {
             let mut fader_lock = motor_faders_mutex.lock().await;
             for motor_fader in fader_lock.iter_mut() {
-                motor_fader.set_value_from_midi(message).unwrap();
+                motor_fader.set_value_from_midi(message).await.unwrap();
             }
         }
     }

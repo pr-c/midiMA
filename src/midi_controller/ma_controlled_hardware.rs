@@ -1,9 +1,13 @@
 pub mod motor_fader;
 pub mod rotary_encoder;
+mod periodic_sender;
+
+use async_trait::async_trait;
 
 use std::error::Error;
 use crate::midi_controller::MidiMessage;
 
+#[async_trait]
 pub trait Hardware {
-    fn set_value_from_midi(&mut self, message: &MidiMessage) -> Result<(), Box<dyn Error>>;
+    async fn set_value_from_midi(&mut self, message: &MidiMessage) -> Result<(), Box<dyn Error>>;
 }

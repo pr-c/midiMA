@@ -1,6 +1,7 @@
 use std::error::Error;
 use crate::midi_controller::ma_controlled_hardware::Hardware;
 use crate::midi_controller::MidiMessage;
+use async_trait::async_trait;
 
 pub struct RotaryEncoder {
 
@@ -15,8 +16,9 @@ impl RotaryEncoder {
     }
 }
 
+#[async_trait]
 impl Hardware for RotaryEncoder {
-    fn set_value_from_midi(&mut self, message: &MidiMessage) -> Result<(), Box<dyn Error>> {
+    async fn set_value_from_midi(&mut self, message: &MidiMessage) -> Result<(), Box<dyn Error>> {
         println!("{:?}", message.data);
         Ok(())
     }

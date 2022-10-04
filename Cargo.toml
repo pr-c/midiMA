@@ -12,3 +12,4 @@ tokio-tungstenite = "*"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 url = "2.2.2"
 md5 = "0.7.0"
+async-trait = "0.1.57"
