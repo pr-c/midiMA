@@ -5,7 +5,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::config::MotorFaderConfig;
 use crate::ma_interface::FaderValue;
 use crate::midi_controller::ma_controlled_hardware::Hardware;
-use crate::midi_controller::ma_controlled_hardware::periodic_sender::PeriodicSender;
+use crate::midi_controller::ma_controlled_hardware::periodic_update_sender::PeriodicUpdateSender;
 use crate::midi_controller::MidiMessage;
 
 
@@ -15,12 +15,12 @@ pub struct MotorFader {
     config: Arc<MotorFaderConfig>,
     value: u8,
     midi_tx: UnboundedSender<MidiMessage>,
-    periodic_sender: PeriodicSender<FaderValue>,
+    periodic_sender: PeriodicUpdateSender<FaderValue>,
 }
 
 impl MotorFader {
     pub fn new(midi_tx: UnboundedSender<MidiMessage>, ma_tx: UnboundedSender<FaderValue>, config: &MotorFaderConfig) -> Result<MotorFader, Box<dyn Error>> {
-        let periodic_sender = PeriodicSender::new(ma_tx, Duration::from_millis(50))?;
+        let periodic_sender = PeriodicUpdateSender::new(ma_tx, Duration::from_millis(50))?;
 
         Ok(MotorFader {
             midi_tx,

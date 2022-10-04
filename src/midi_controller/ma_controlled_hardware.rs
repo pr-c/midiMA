@@ -1,6 +1,6 @@
 pub mod motor_fader;
 pub mod rotary_encoder;
-mod periodic_sender;
+mod periodic_update_sender;
 
 use async_trait::async_trait;
 
