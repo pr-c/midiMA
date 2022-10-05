@@ -4,7 +4,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use crate::config::MotorFaderConfig;
 use crate::ma_interface::FaderValue;
 use crate::midi_controller::ma_controlled_hardware::Hardware;
-use crate::midi_controller::ma_controlled_hardware::periodic_update_sender::PeriodicUpdateSender;
+use crate::midi_controller::periodic_update_sender::PeriodicUpdateSender;
 use crate::midi_controller::MidiMessage;
 
 

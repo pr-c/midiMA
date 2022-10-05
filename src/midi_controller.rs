@@ -1,4 +1,5 @@
 pub mod ma_controlled_hardware;
+mod periodic_update_sender;
 
 use std::error::Error;
 use std::sync::Arc;
