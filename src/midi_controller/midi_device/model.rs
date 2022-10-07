@@ -43,13 +43,13 @@ pub trait MidiDeviceComponent<T: MidiMessageReceiver = Self> {
 
 #[async_trait]
 pub trait MidiMessageReceiver {
-    async fn receive_midi_message(&mut self, message: &MidiMessage) -> Result<(), ()>;
+    async fn receive_midi_message(&mut self, message: MidiMessage) -> Result<(), ()>;
 }
 
 
 #[async_trait]
 impl MidiMessageReceiver for DeviceModel {
-    async fn receive_midi_message(&mut self, message: &MidiMessage) -> Result<(), ()> {
+    async fn receive_midi_message(&mut self, message: MidiMessage) -> Result<(), ()> {
         for fader in &mut self.faders {
             if fader.receive_midi_message(message).await.is_ok() {
                 return Ok(());

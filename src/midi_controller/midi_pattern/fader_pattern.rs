@@ -23,9 +23,9 @@ impl MidiPattern for FaderPattern {
         }
     }
 
-    fn create_output_message_from_state(&self, value: Self::State) -> MidiMessage {
+    fn create_output_message_from_state(&self, value: &Self::State) -> MidiMessage {
         MidiMessage {
-            data: [self.config.output_midi_byte_0, self.config.output_midi_byte_1, value]
+            data: [self.config.output_midi_byte_0, self.config.output_midi_byte_1, *value]
         }
     }
 }

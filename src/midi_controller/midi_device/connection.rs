@@ -10,11 +10,11 @@ use crate::midi_controller::midi_message::MidiMessage;
 
 pub struct Connection {
     _midi_connection_rx: MidiInputConnection<()>,
-    sender_task: JoinHandle<()>
+    sender_task: JoinHandle<()>,
 }
 
 impl Connection {
-    pub fn new(config: &MidiDeviceConfig) -> Result<(Self, UnboundedReceiverStream<MidiMessage>, UnboundedSender<MidiMessage>), Box<dyn Error>> {
+    pub fn new(config: &MidiDeviceConfig) -> Result<(Self, UnboundedReceiver<MidiMessage>, UnboundedSender<MidiMessage>), Box<dyn Error>> {
         let mut midi_out = MidiOutput::new(&("MidiMA out ".to_owned() + &config.midi_out_port_name))?;
         let mut midi_in = MidiInput::new(&("MidiMA in ".to_owned() + &config.midi_in_port_name))?;
         let port_in = Self::find_midi_port(&mut midi_in, &config.midi_in_port_name)?;
@@ -36,9 +36,9 @@ impl Connection {
             (
                 Self {
                     _midi_connection_rx: midi_connection_rx,
-                    sender_task
+                    sender_task,
                 },
-                UnboundedReceiverStream::new(midi_rx_receiver),
+                midi_rx_receiver,
                 midi_tx_sender
             )
         )

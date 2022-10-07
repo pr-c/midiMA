@@ -35,8 +35,8 @@ impl MidiDeviceComponent for Button {
 
 #[async_trait]
 impl MidiMessageReceiver for Button {
-    async fn receive_midi_message(&mut self, message: &MidiMessage) -> Result<(), ()> {
-        if let Ok(value) = self.pattern.resolve_value_from_input(message) {
+    async fn receive_midi_message(&mut self, message: MidiMessage) -> Result<(), ()> {
+        if let Ok(value) = self.pattern.resolve_value_from_input(&message) {
             self.process_midi_input(value);
             Ok(())
         } else {

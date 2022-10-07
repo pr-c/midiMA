@@ -2,11 +2,9 @@ use std::error::Error;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use futures_util::StreamExt;
-use tokio::sync::mpsc::{UnboundedSender};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
-use tokio_stream::wrappers::UnboundedReceiverStream;
 use crate::config::MidiDeviceConfig;
 use crate::ma_interface::Update;
 use model::DeviceModel;
@@ -30,14 +28,13 @@ pub struct MidiDevice {
 
 impl MidiDevice {
     pub fn new(config: &MidiDeviceConfig, ma_feedback_handle: UnboundedSender<Update>) -> Result<Self, Box<dyn Error>> {
-        let (connection, midi_rx_stream, midi_tx) = Connection::new(config)?;
+        let (connection, midi_rx, midi_tx) = Connection::new(config)?;
 
         let feedback_handle = ModelFeedbackHandle::new(ma_feedback_handle, midi_tx);
         let model = DeviceModel::new(config.model.clone(), feedback_handle)?;
 
         let model_mutex = Arc::new(Mutex::new(model));
-
-        let midi_input_process_task = tokio::spawn(Self::process_all_midi_inputs(midi_rx_stream, model_mutex.clone()));
+        let midi_input_process_task = tokio::spawn(Self::process_all_midi_inputs(midi_rx, model_mutex.clone()));
 
         Ok(Self {
             _connection: connection,
@@ -46,12 +43,11 @@ impl MidiDevice {
         })
     }
 
-    async fn process_all_midi_inputs(source: UnboundedReceiverStream<MidiMessage>, model_mutex: Arc<Mutex<DeviceModel>>) {
-        source.for_each(|message| async {
-            let mut model = model_mutex.as_ref().lock().await;
-            let moved_message_into_closure = message;
-            let _result = model.receive_midi_message(&moved_message_into_closure).await;
-        }).await;
+    async fn process_all_midi_inputs(mut source: UnboundedReceiver<MidiMessage>, model_mutex: Arc<Mutex<DeviceModel>>) {
+        while let Some(message) = source.recv().await {
+            let mut model = model_mutex.lock().await;
+            let _result = model.receive_midi_message(message).await;
+        }
     }
 }
 

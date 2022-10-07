@@ -1,7 +1,6 @@
 use std::error::Error;
 use std::time::Duration;
 use async_trait::async_trait;
-use tokio::sync::mpsc::UnboundedSender;
 use crate::config::MotorFaderConfig;
 use crate::FaderValue;
 use crate::ma_interface::Update;
@@ -18,8 +17,8 @@ pub struct Fader {
     config: MotorFaderConfig,
     pattern: FaderPattern,
     current_state: u8,
-    periodic_update_sender: PeriodicUpdateSender<Update>,
-    midi_feedback: UnboundedSender<MidiMessage>,
+    ma_update_sender: PeriodicUpdateSender<Update>,
+    midi_update_sender: PeriodicUpdateSender<MidiMessage>,
 }
 
 impl Fader {
@@ -33,14 +32,15 @@ impl Fader {
     async fn process_midi_input(&mut self, state: u8) {
         if self.current_state != state {
             self.current_state = state;
-            let _ = self.periodic_update_sender.set_value(self.get_update()).await;
+            let _ = self.ma_update_sender.set_value(self.get_update()).await;
+            let _ = self.midi_update_sender.set_value(self.pattern.create_output_message_from_state(&state)).await;
         }
     }
 
-    fn process_ma_input(&mut self, value: u8) {
+    async fn process_ma_input(&mut self, value: u8) {
         if self.current_state != value {
             self.current_state = value;
-            let _ = self.midi_feedback.send(self.pattern.create_output_message_from_state(value));
+            let _ = self.midi_update_sender.set_value(self.pattern.create_output_message_from_state(&value)).await;
         }
     }
 
@@ -55,13 +55,14 @@ impl Fader {
 impl MidiDeviceComponent for Fader {
     type Config = MotorFaderConfig;
     fn new(config: Self::Config, feedback_handle: ModelFeedbackHandle) -> Result<Self, Box<dyn Error>> {
-        let periodic_update_sender = PeriodicUpdateSender::new(feedback_handle.ma, Duration::from_millis(50))?;
+        let ma_update_sender = PeriodicUpdateSender::new(feedback_handle.ma, Duration::from_millis(50))?;
+        let midi_update_sender = PeriodicUpdateSender::new(feedback_handle.midi, Duration::from_millis(50))?;
         Ok(Self {
             pattern: FaderPattern::new(config.clone()),
             current_state: 0,
             config,
-            periodic_update_sender,
-            midi_feedback: feedback_handle.midi,
+            ma_update_sender,
+            midi_update_sender,
         })
     }
 }
@@ -70,9 +71,9 @@ impl MidiDeviceComponent for Fader {
 impl MaUpdateReceiver for Fader {
     async fn receive_update_from_ma(&mut self, update: Update) {
         if let FaderUpdate(value) = update {
-            if value.exec_index == self.config.ma_executor_index && !self.periodic_update_sender.is_sending() {
+            if value.exec_index == self.config.ma_executor_index && !self.ma_update_sender.is_sending() {
                 let midi_value = self.ma_value_to_fader_value(value.fader_value);
-                self.process_ma_input(midi_value);
+                self.process_ma_input(midi_value).await;
             }
         }
     }
@@ -80,8 +81,8 @@ impl MaUpdateReceiver for Fader {
 
 #[async_trait]
 impl MidiMessageReceiver for Fader {
-    async fn receive_midi_message(&mut self, message: &MidiMessage) -> Result<(), ()> {
-        if let Ok(value) = self.pattern.resolve_value_from_input(message) {
+    async fn receive_midi_message(&mut self, message: MidiMessage) -> Result<(), ()> {
+        if let Ok(value) = self.pattern.resolve_value_from_input(&message) {
             self.process_midi_input(value).await;
             Ok(())
         } else {

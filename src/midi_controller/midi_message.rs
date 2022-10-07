@@ -1,5 +1,6 @@
 use std::array::TryFromSliceError;
 
+#[derive(Clone, Copy)]
 pub struct MidiMessage {
     pub data: [u8; 3],
 }

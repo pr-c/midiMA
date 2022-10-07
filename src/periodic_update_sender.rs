@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::interval;
 
-pub struct PeriodicUpdateSender<T: Copy + Send + 'static> {
+pub struct PeriodicUpdateSender<T: Clone + Send + 'static> {
     value: Arc<Mutex<Option<T>>>,
     channel: UnboundedSender<T>,
     period: Duration,
@@ -16,7 +16,7 @@ pub struct PeriodicUpdateSender<T: Copy + Send + 'static> {
 }
 
 
-impl<T: Copy + Send + 'static> PeriodicUpdateSender<T> {
+impl<T: Clone + Send + 'static> PeriodicUpdateSender<T> {
     pub fn new(channel: UnboundedSender<T>, period: Duration) -> Result<Self, Box<dyn Error>> {
         if channel.is_closed() {
             return Err(Box::new(ChannelClosedError {}));
@@ -62,7 +62,7 @@ impl<T: Copy + Send + 'static> PeriodicUpdateSender<T> {
             interval.tick().await;
             let mut value_lock = value.lock().await;
             if let Some(t) = value_lock.deref() {
-                let send_result = channel.send(*t);
+                let send_result = channel.send((*t).clone());
                 *value_lock = None;
                 if send_result.is_err() {
                     return Err(ChannelClosedError {});
@@ -74,7 +74,7 @@ impl<T: Copy + Send + 'static> PeriodicUpdateSender<T> {
     }
 }
 
-impl<T: Copy + Send + 'static> Drop for PeriodicUpdateSender<T> {
+impl<T: Clone + Send + 'static> Drop for PeriodicUpdateSender<T> {
     fn drop(&mut self) {}
 }
 
