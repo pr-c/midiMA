@@ -56,6 +56,14 @@ pub struct RotaryEncoderConfig {
 
 }
 
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq)]
+pub enum ButtonPosition {
+    Top,
+    Mid,
+    Bottom
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ButtonConfig {
     pub input_midi_byte_0: u8,
@@ -66,6 +74,7 @@ pub struct ButtonConfig {
     pub high_value: Option<u8>,
     pub input_feedback: Option<bool>,
     pub ma_executor_index: u8,
+    pub position: ButtonPosition
 }
 
 

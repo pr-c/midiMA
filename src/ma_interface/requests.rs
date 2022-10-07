@@ -2,6 +2,8 @@ use crate::LoginCredentials;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::vec::Vec;
+use crate::config::ButtonPosition;
+use crate::ma_interface::ButtonValue;
 
 #[derive(PartialEq)]
 pub enum RequestType {
@@ -96,7 +98,7 @@ pub struct PlaybacksRequest {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct PlaybacksUserInputRequest {
+pub struct FaderInputRequest {
     #[serde(rename = "requestType")]
     request_type: String,
     #[serde(rename = "execIndex")]
@@ -110,15 +112,53 @@ pub struct PlaybacksUserInputRequest {
     session: i32,
 }
 
-impl PlaybacksUserInputRequest {
-    pub fn new(session: i32, exec_index: u8, page_index: u32, fader_value: f32) -> PlaybacksUserInputRequest {
-        PlaybacksUserInputRequest {
+impl FaderInputRequest {
+    pub fn new(session: i32, exec_index: u8, page_index: u32, fader_value: f32) -> FaderInputRequest {
+        FaderInputRequest {
             request_type: "playbacks_userInput".to_string(),
             exec_index,
             page_index,
             fader_value,
             input_type: 1,
             session,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ButtonInputRequest {
+    #[serde(rename = "requestType")]
+    pub request_type: String,
+    #[serde(rename = "execIndex")]
+    pub exec_index: u8,
+    #[serde(rename = "pageIndex")]
+    pub page_index: u32,
+    pub cmdline: String,
+    #[serde(rename = "buttonId")]
+    pub button_id: u8,
+    pub pressed: bool,
+    pub released: bool,
+    #[serde(rename = "type")]
+    pub input_type: u32,
+    pub session: i32,
+}
+
+impl ButtonInputRequest {
+    pub fn new(session: i32, button: &ButtonValue, page_index: u32) -> Self {
+        Self {
+            request_type: "playbacks_userInput".to_string(),
+            exec_index: button.exec_index,
+            page_index,
+            pressed: button.button_value,
+            released: !button.button_value,
+            input_type: 0,
+            button_id: { match button.position {
+                ButtonPosition::Top => 2,
+                ButtonPosition::Mid => 1,
+                ButtonPosition::Bottom => 0
+            } },
+            cmdline: "".to_string(),
+            session
         }
     }
 }

@@ -3,7 +3,7 @@ pub mod objects;
 mod requests;
 pub mod responses;
 
-use crate::ma_interface::requests::{LoginRequest, PlaybacksRequest, PlaybacksUserInputRequest, SessionIdRequest};
+use crate::ma_interface::requests::{LoginRequest, PlaybacksRequest, FaderInputRequest, SessionIdRequest, ButtonInputRequest};
 use crate::ma_interface::responses::{LoginRequestResponse, SessionIdResponse};
 use connection::Connection;
 use futures_util::StreamExt;
@@ -19,6 +19,7 @@ use tokio::task::JoinHandle;
 use tokio::time::interval;
 use tokio_tungstenite::tungstenite::protocol::Message;
 use url::Url;
+use crate::config::ButtonPosition;
 
 use self::responses::PlaybacksResponse;
 
@@ -35,11 +36,16 @@ pub enum Update {
 
 #[derive(Clone, Copy)]
 pub struct FaderValue {
-    pub exec_index: u8,
     pub fader_value: f32,
+    pub exec_index: u8,
 }
 
-pub type ButtonValue = bool;
+#[derive(Clone, Copy)]
+pub struct ButtonValue {
+    pub button_value: bool,
+    pub exec_index: u8,
+    pub position: ButtonPosition,
+}
 
 struct ResponseSenders {
     pub playbacks: UnboundedSender<PlaybacksResponse>,
@@ -134,20 +140,26 @@ impl MaInterface {
         }
     }
 
-    pub fn send_update(&mut self, update: Update) -> Result<(), Box<dyn Error>>{
+    pub fn send_update(&mut self, update: Update) -> Result<(), Box<dyn Error>> {
         match update {
             Update::FaderUpdate(fader_value) => {
                 self.send_fader_value(&fader_value)?;
             }
             Update::ButtonUpdate(button_value) => {
-                todo!();
+                self.send_button_value(&button_value)?;
             }
         }
         Ok(())
     }
 
-    fn send_fader_value(&mut self, executor_value: &FaderValue) -> Result<(), Box<dyn Error>> {
-        let request = PlaybacksUserInputRequest::new(self.session_id, executor_value.exec_index, 0, executor_value.fader_value);
+    fn send_fader_value(&mut self, fader_value: &FaderValue) -> Result<(), Box<dyn Error>> {
+        let request = FaderInputRequest::new(self.session_id, fader_value.exec_index, 0, fader_value.fader_value);
+        self.send_request(request)?;
+        Ok(())
+    }
+
+    fn send_button_value(&mut self, button_value: &ButtonValue) -> Result<(), Box<dyn Error>> {
+        let request = ButtonInputRequest::new(self.session_id, button_value, 0);
         self.send_request(request)?;
         Ok(())
     }

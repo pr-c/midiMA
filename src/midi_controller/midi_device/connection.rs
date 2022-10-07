@@ -13,8 +13,13 @@ pub struct Connection {
     sender_task: JoinHandle<()>,
 }
 
+pub struct TxRxChannels {
+    pub sender: UnboundedSender<MidiMessage>,
+    pub receiver: UnboundedReceiver<MidiMessage>,
+}
+
 impl Connection {
-    pub fn new(config: &MidiDeviceConfig) -> Result<(Self, UnboundedReceiver<MidiMessage>, UnboundedSender<MidiMessage>), Box<dyn Error>> {
+    pub fn new(config: &MidiDeviceConfig) -> Result<(Self, TxRxChannels), Box<dyn Error>> {
         let mut midi_out = MidiOutput::new(&("MidiMA out ".to_owned() + &config.midi_out_port_name))?;
         let mut midi_in = MidiInput::new(&("MidiMA in ".to_owned() + &config.midi_in_port_name))?;
         let port_in = Self::find_midi_port(&mut midi_in, &config.midi_in_port_name)?;
@@ -38,8 +43,10 @@ impl Connection {
                     _midi_connection_rx: midi_connection_rx,
                     sender_task,
                 },
-                midi_rx_receiver,
-                midi_tx_sender
+                TxRxChannels {
+                    receiver: midi_rx_receiver,
+                    sender: midi_tx_sender,
+                }
             )
         )
     }

@@ -28,13 +28,13 @@ pub struct MidiDevice {
 
 impl MidiDevice {
     pub fn new(config: &MidiDeviceConfig, ma_feedback_handle: UnboundedSender<Update>) -> Result<Self, Box<dyn Error>> {
-        let (connection, midi_rx, midi_tx) = Connection::new(config)?;
+        let (connection, channels) = Connection::new(config)?;
 
-        let feedback_handle = ModelFeedbackHandle::new(ma_feedback_handle, midi_tx);
+        let feedback_handle = ModelFeedbackHandle::new(ma_feedback_handle, channels.sender);
         let model = DeviceModel::new(config.model.clone(), feedback_handle)?;
 
         let model_mutex = Arc::new(Mutex::new(model));
-        let midi_input_process_task = tokio::spawn(Self::process_all_midi_inputs(midi_rx, model_mutex.clone()));
+        let midi_input_process_task = tokio::spawn(Self::process_all_midi_inputs(channels.receiver, model_mutex.clone()));
 
         Ok(Self {
             _connection: connection,

@@ -38,7 +38,8 @@ impl DeviceModel {
 
 pub trait MidiDeviceComponent<T: MidiMessageReceiver = Self> {
     type Config;
-    fn new(config: Self::Config, feedback_handle: ModelFeedbackHandle) -> Result<T, Box<dyn Error>>;
+    fn new(config: Self::Config, feedback_handle: ModelFeedbackHandle) -> Result<Self, Box<dyn Error>>
+        where Self: std::marker::Sized;
 }
 
 #[async_trait]
@@ -68,7 +69,7 @@ impl MidiMessageReceiver for DeviceModel {
 impl MaUpdateReceiver for DeviceModel {
     async fn receive_update_from_ma(&mut self, update: Update) {
         for fader in &mut self.faders {
-             fader.receive_update_from_ma(update).await;
+            fader.receive_update_from_ma(update).await;
         }
         for button in &mut self.buttons {
             button.receive_update_from_ma(update).await;
