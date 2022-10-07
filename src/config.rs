@@ -6,7 +6,7 @@ pub struct Config {
     pub console_ip: String,
     pub console_username: String,
     pub console_password: String,
-    pub midi_devices: Vec<MidiControllerConfig>,
+    pub midi_devices: Vec<MidiDeviceConfig>,
     pub ma_poll_interval: u64,
 }
 
@@ -38,17 +38,37 @@ impl Config {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct MidiControllerConfig {
+pub struct MidiDeviceConfig {
     pub midi_in_port_name: String,
     pub midi_out_port_name: String,
+    pub model: DeviceModelConfig
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct DeviceModelConfig {
     pub motor_faders: Vec<MotorFaderConfig>,
-    pub rotary_encoders: Vec<RotaryEncoderConfig>
+    pub rotary_encoders: Vec<RotaryEncoderConfig>,
+    pub buttons: Vec<ButtonConfig>
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct RotaryEncoderConfig {
 
 }
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ButtonConfig {
+    pub input_midi_byte_0: u8,
+    pub input_midi_byte_1: u8,
+    pub output_midi_byte_0: u8,
+    pub output_midi_byte_1: u8,
+    pub low_value: Option<u8>,
+    pub high_value: Option<u8>,
+    pub input_feedback: Option<bool>,
+    pub ma_executor_index: u8,
+}
+
+
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct MotorFaderConfig {

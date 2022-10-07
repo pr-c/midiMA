@@ -48,6 +48,10 @@ impl<T: Copy + Send + 'static> PeriodicUpdateSender<T> {
         Ok(())
     }
 
+    pub fn is_sending(&self) -> bool {
+        !(self.sender_task.is_none() || self.sender_task.as_ref().unwrap().is_finished())
+    }
+
     fn start_sender_task(&mut self) {
         self.sender_task = Some(tokio::spawn(Self::sender_loop(self.channel.clone(), self.value.clone(), self.period)));
     }

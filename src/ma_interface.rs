@@ -28,11 +28,18 @@ pub struct LoginCredentials {
 }
 
 #[derive(Clone, Copy)]
+pub enum Update {
+    FaderUpdate(FaderValue),
+    ButtonUpdate(ButtonValue),
+}
+
+#[derive(Clone, Copy)]
 pub struct FaderValue {
     pub exec_index: u8,
-    pub page_index: u32,
     pub fader_value: f32,
 }
+
+pub type ButtonValue = bool;
 
 struct ResponseSenders {
     pub playbacks: UnboundedSender<PlaybacksResponse>,
@@ -127,8 +134,20 @@ impl MaInterface {
         }
     }
 
-    pub fn send_executor_value(&mut self, executor_value: &FaderValue) -> Result<(), Box<dyn Error>> {
-        let request = PlaybacksUserInputRequest::new(self.session_id, executor_value.exec_index, executor_value.page_index, executor_value.fader_value);
+    pub fn send_update(&mut self, update: Update) -> Result<(), Box<dyn Error>>{
+        match update {
+            Update::FaderUpdate(fader_value) => {
+                self.send_fader_value(&fader_value)?;
+            }
+            Update::ButtonUpdate(button_value) => {
+                todo!();
+            }
+        }
+        Ok(())
+    }
+
+    fn send_fader_value(&mut self, executor_value: &FaderValue) -> Result<(), Box<dyn Error>> {
+        let request = PlaybacksUserInputRequest::new(self.session_id, executor_value.exec_index, 0, executor_value.fader_value);
         self.send_request(request)?;
         Ok(())
     }

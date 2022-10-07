@@ -133,6 +133,7 @@ pub struct EncoderChangeRequest {
     session: i32,
 }
 
+
 impl EncoderChangeRequest {
     pub fn new(session: i32, name: String, value: f32, resolution: f32) -> Self {
         Self {
