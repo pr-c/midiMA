@@ -2,15 +2,14 @@ use std::error::Error;
 use async_trait::async_trait;
 use crate::config::{DeviceModelConfig};
 use crate::ma_interface::Update;
-use crate::midi_controller::MaUpdateReceiver;
 
 use crate::midi_controller::midi_message::MidiMessage;
-use crate::midi_controller::midi_device::model::button::Button;
-use crate::midi_controller::midi_device::model::fader::Fader;
+use crate::midi_controller::midi_device::model::components::button::Button;
+use crate::midi_controller::midi_device::model::components::fader::Fader;
 use crate::midi_controller::midi_device::ModelFeedbackHandle;
+use crate::midi_controller::midi_device::model::components::{MaUpdateReceiver, MidiDeviceComponent, MidiMessageReceiver, ReceivingError, ReceivingState};
 
-pub mod fader;
-pub mod button;
+pub mod components;
 
 pub struct DeviceModel {
     faders: Vec<Fader>,
@@ -34,46 +33,33 @@ impl DeviceModel {
             buttons,
         })
     }
-}
 
-pub trait MidiDeviceComponent<T: MidiMessageReceiver = Self> {
-    type Config;
-    fn new(config: Self::Config, feedback_handle: ModelFeedbackHandle) -> Result<Self, Box<dyn Error>>
-        where Self: std::marker::Sized;
-}
-
-#[async_trait]
-pub trait MidiMessageReceiver {
-    async fn receive_midi_message(&mut self, message: MidiMessage) -> Result<(), ()>;
+    pub async fn receive_update_from_ma(&mut self, update: Update) -> Result<(), ReceivingError>{
+        for fader in &mut self.faders {
+            fader.receive_update_from_ma(update).await?;
+        }
+        for button in &mut self.buttons {
+            button.receive_update_from_ma(update).await?;
+        }
+        Ok(())
+    }
 }
 
 
 #[async_trait]
 impl MidiMessageReceiver for DeviceModel {
-    async fn receive_midi_message(&mut self, message: MidiMessage) -> Result<(), ()> {
+    async fn receive_midi_message(&mut self, message: MidiMessage) -> Result<ReceivingState, ReceivingError> {
         for fader in &mut self.faders {
-            if fader.receive_midi_message(message).await.is_ok() {
-                return Ok(());
+            if fader.receive_midi_message(message).await? == ReceivingState::Consumed {
+                return Ok(ReceivingState::Consumed);
             }
         }
         for button in &mut self.buttons {
-            if button.receive_midi_message(message).await.is_ok() {
-                return Ok(());
+            if button.receive_midi_message(message).await? == ReceivingState::Consumed {
+                return Ok(ReceivingState::Consumed);
             }
         }
-        Err(())
-    }
-}
-
-#[async_trait]
-impl MaUpdateReceiver for DeviceModel {
-    async fn receive_update_from_ma(&mut self, update: Update) {
-        for fader in &mut self.faders {
-            fader.receive_update_from_ma(update).await;
-        }
-        for button in &mut self.buttons {
-            button.receive_update_from_ma(update).await;
-        }
+        Ok(ReceivingState::Pass)
     }
 }
 

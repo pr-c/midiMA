@@ -17,7 +17,6 @@ use tokio::sync::Mutex;
 use tokio::time::Instant;
 
 use url::Url;
-use crate::midi_controller::MaUpdateReceiver;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {

@@ -2,7 +2,6 @@ pub mod midi_pattern;
 pub mod midi_device;
 pub mod midi_message;
 
-use async_trait::async_trait;
 use std::error::Error;
 use crate::config::MidiDeviceConfig;
 use crate::midi_controller::midi_device::MidiDevice;
@@ -27,19 +26,12 @@ impl MidiController {
             midi_devices
         })
     }
-}
 
-
-#[async_trait]
-pub trait MaUpdateReceiver {
-    async fn receive_update_from_ma(&mut self, update: Update);
-}
-
-#[async_trait]
-impl MaUpdateReceiver for MidiController {
-    async fn receive_update_from_ma(&mut self, update: Update) {
+    pub async fn receive_update_from_ma(&mut self, update: Update) {
         for device in self.midi_devices.iter_mut() {
             device.receive_update_from_ma(update).await;
         }
     }
 }
+
+

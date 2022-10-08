@@ -1,10 +1,7 @@
 use std::error::Error;
-use std::future;
-use futures_util::StreamExt;
 use midir::{MidiInput, MidiInputConnection, MidiIO, MidiOutput, MidiOutputConnection};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 use tokio::task::JoinHandle;
-use tokio_stream::wrappers::UnboundedReceiverStream;
 use crate::config::MidiDeviceConfig;
 use crate::midi_controller::midi_message::MidiMessage;
 
@@ -60,12 +57,14 @@ impl Connection {
         Err("The midi port couldn't be found.")?
     }
 
-    async fn forward_tx_messages(source: UnboundedReceiver<MidiMessage>, mut sink_connection: MidiOutputConnection) {
-        let source_stream = UnboundedReceiverStream::new(source);
-        source_stream.for_each(|message| {
-            let _ = sink_connection.send(&message.data);
-            future::ready(())
-        }).await;
+    async fn forward_tx_messages(mut source: UnboundedReceiver<MidiMessage>, mut sink_connection: MidiOutputConnection) {
+        while let Some(message) = source.recv().await {
+            let send_result = sink_connection.send(&message.data);
+            if send_result.is_err() {
+                source.close();
+                break;
+            }
+        }
     }
 }
 
