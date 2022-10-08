@@ -45,7 +45,7 @@ pub struct PlaybacksResponse {
     pub realtime: bool,
     pub responseType: String,
     pub responseSubType: i32,
-    pub iPage: i32,
+    pub iPage: u32,
     pub itemGroups: Vec<ItemGroup>,
     pub worldIndex: Option<i32>,
 }
